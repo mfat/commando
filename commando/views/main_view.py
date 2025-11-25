@@ -236,10 +236,20 @@ class MainView(Adw.Bin):
         self._edit_command(new_command)
     
     def _on_card_click(self, command: Command):
-        """Handle card click."""
+        """Handle card click - select the card only."""
         logger.debug(f"Card clicked: {command.title}")
-        # Single click - switch to terminal view and execute
-        self.execute_command(command)
+        # Single click - only select the card, don't execute
+        # Find the card in the FlowBox and select it
+        card = self.cards.get(command.number)
+        if card:
+            # Find the FlowBoxChild that contains this card
+            for child in self.flow_box:
+                if child.get_child() == card:
+                    self.flow_box.select_child(child)
+                    # Ensure FlowBox has focus for keyboard navigation
+                    self.flow_box.grab_focus()
+                    logger.debug(f"Card {command.number} selected")
+                    break
     
     def _on_card_double_click(self, command: Command):
         """Handle card double-click."""

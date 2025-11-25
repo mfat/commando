@@ -114,7 +114,7 @@ class CommandoWindow(Adw.ApplicationWindow):
         
         # Home button (to go back to main view)
         self.home_button = Gtk.Button()
-        self.home_button.set_icon_name("terminal-symbolic")
+        self.home_button.set_icon_name("utilities-terminal-symbolic")
         self.home_button.set_tooltip_text("Go to Terminal")
         self.home_button.connect("clicked", self._on_home_clicked)
         header.pack_start(self.home_button)
@@ -374,7 +374,7 @@ class CommandoWindow(Adw.ApplicationWindow):
         current_view = self.stack.get_visible_child_name()
         if current_view == "main":
             # Show terminal icon when in main view (clicking will go to terminal)
-            self.home_button.set_icon_name("terminal-symbolic")
+            self.home_button.set_icon_name("utilities-terminal-symbolic")
             self.home_button.set_tooltip_text("Go to Terminal")
         else:
             # Show home icon when in terminal view (clicking will go to main view)
