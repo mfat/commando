@@ -61,9 +61,9 @@ class CommandoWindow(Adw.ApplicationWindow):
         # Set main box as content
         self.set_content(self.main_box)
         
-        # Initialize bottom terminal variables
-        self.bottom_terminal_view = None
-        self.bottom_terminal_widget = None
+        # Initialize embedded terminal variables (bottom terminal in main window)
+        self.embedded_terminal_view = None
+        self.embedded_terminal_widget = None
         
         # Setup bottom terminal based on config (after views are created)
         
@@ -76,12 +76,12 @@ class CommandoWindow(Adw.ApplicationWindow):
             raise
         
         try:
-            self.terminal_view = TerminalView()
-            logger.debug("TerminalView created")
+            self.standalone_terminal_view = TerminalView()
+            logger.debug("StandaloneTerminalView created")
         except Exception as e:
-            logger.error(f"Failed to create TerminalView: {e}", exc_info=True)
+            logger.error(f"Failed to create StandaloneTerminalView: {e}", exc_info=True)
             # Create a placeholder view instead
-            self.terminal_view = Gtk.Label(label="Terminal view unavailable")
+            self.standalone_terminal_view = Gtk.Label(label="Terminal view unavailable")
         
         try:
             self.web_view = WebView()
@@ -91,13 +91,13 @@ class CommandoWindow(Adw.ApplicationWindow):
             # Create a placeholder view instead
             self.web_view = Gtk.Label(label="Web view unavailable")
         
-        # Connect executor to terminal view
+        # Connect executor to standalone terminal view
         if hasattr(self.main_view, 'executor'):
-            self.main_view.executor.set_terminal_view(self.terminal_view)
+            self.main_view.executor.set_terminal_view(self.standalone_terminal_view)
         
         # Add views to stack
         self.stack.add_titled(self.main_view, "main", "Commands")
-        self.stack.add_titled(self.terminal_view, "terminal", "Terminal")
+        self.stack.add_titled(self.standalone_terminal_view, "terminal", "Terminal")
         self.stack.add_titled(self.web_view, "web", "Web")
         
         # Connect to stack's visible-child-changed signal to focus FlowBox when main view is shown
@@ -142,6 +142,13 @@ class CommandoWindow(Adw.ApplicationWindow):
         home_button.set_tooltip_text("Go to Commands")
         home_button.connect("clicked", self._on_home_clicked)
         header.pack_start(home_button)
+        
+        # Search button
+        search_button = Gtk.Button()
+        search_button.set_icon_name("system-search-symbolic")
+        search_button.set_tooltip_text("Search Commands")
+        search_button.connect("clicked", self._on_search_clicked)
+        header.pack_start(search_button)
         
         # Menu button
         menu = Gtk.MenuButton()
@@ -253,10 +260,10 @@ class CommandoWindow(Adw.ApplicationWindow):
         )
         shortcut_controller.add_shortcut(shortcut)
         
-        # Ctrl+F to focus search
+        # Ctrl+Shift+F to toggle search
         shortcut = Gtk.Shortcut.new(
-            Gtk.ShortcutTrigger.parse_string("<Primary>f"),
-            Gtk.CallbackAction.new(self._focus_search)
+            Gtk.ShortcutTrigger.parse_string("<Primary><Shift>f"),
+            Gtk.CallbackAction.new(self._toggle_search)
         )
         shortcut_controller.add_shortcut(shortcut)
         
@@ -274,17 +281,94 @@ class CommandoWindow(Adw.ApplicationWindow):
         )
         shortcut_controller.add_shortcut(shortcut)
         
+        # Ctrl+Shift+E to toggle between cards view and terminal
+        shortcut = Gtk.Shortcut.new(
+            Gtk.ShortcutTrigger.parse_string("<Primary><Shift>e"),
+            Gtk.CallbackAction.new(self._toggle_cards_terminal)
+        )
+        shortcut_controller.add_shortcut(shortcut)
+        
         self.add_controller(shortcut_controller)
     
-    def _focus_search(self, *args):
-        """Focus the search entry."""
-        if hasattr(self.main_view, "search_entry"):
-            self.main_view.search_entry.grab_focus()
+    def _on_search_clicked(self, button):
+        """Handle search button click - toggle search bar."""
+        if hasattr(self.main_view, "toggle_search"):
+            self.main_view.toggle_search()
+    
+    def _toggle_search(self, *args):
+        """Toggle search bar visibility (keyboard shortcut)."""
+        if hasattr(self.main_view, "toggle_search"):
+            self.main_view.toggle_search()
     
     def _on_home_clicked(self, button):
         """Handle home button click - switch to main view."""
         self.stack.set_visible_child_name("main")
         # Focus will be set by _on_stack_visible_child_changed
+    
+    def _toggle_cards_terminal(self, *args, from_terminal=None):
+        """
+        Toggle between cards view and terminal view (Ctrl+Shift+E).
+        
+        Args:
+            from_terminal: TerminalView instance that triggered the toggle, or None
+        """
+        current_view = self.stack.get_visible_child_name()
+        
+        # Determine which terminal is active
+        # If from_terminal is provided, we know which one triggered it
+        is_embedded_terminal = False
+        if from_terminal:
+            is_embedded_terminal = (from_terminal == self.embedded_terminal_view)
+        else:
+            # Check if embedded terminal is active by checking focus
+            focus_widget = self.get_focus()
+            if focus_widget and self.embedded_terminal_view:
+                # Walk up the widget tree to see if focus is in embedded terminal
+                parent = focus_widget
+                while parent:
+                    if parent == self.embedded_terminal_view or parent == self.embedded_terminal_widget:
+                        is_embedded_terminal = True
+                        break
+                    parent = parent.get_parent() if hasattr(parent, 'get_parent') else None
+                    if parent == self.standalone_terminal_view:
+                        # Focus is in standalone terminal view, not embedded
+                        break
+        
+        if current_view == "main":
+            # Switch to terminal - prefer embedded terminal if enabled, otherwise standalone terminal view
+            if self.embedded_terminal_view and self.embedded_terminal_widget and self.embedded_terminal_widget.get_visible():
+                # Embedded terminal is available, focus it
+                if hasattr(self.embedded_terminal_view, 'focus_current_terminal'):
+                    GLib.timeout_add(100, self.embedded_terminal_view.focus_current_terminal)
+                    GLib.timeout_add(300, self.embedded_terminal_view.focus_current_terminal)
+            else:
+                # Switch to standalone terminal view
+                self.stack.set_visible_child_name("terminal")
+                # Focus the terminal
+                if hasattr(self.standalone_terminal_view, 'focus_current_terminal'):
+                    GLib.timeout_add(100, self.standalone_terminal_view.focus_current_terminal)
+                    GLib.timeout_add(300, self.standalone_terminal_view.focus_current_terminal)
+        elif current_view == "terminal" or is_embedded_terminal:
+            # Switch to main (cards) view - either from terminal view or bottom terminal
+            self.stack.set_visible_child_name("main")
+            # Explicitly focus FlowBox after switching
+            def focus_flowbox():
+                if hasattr(self.main_view, 'flow_box'):
+                    if self.main_view.flow_box.get_visible() and self.main_view.flow_box.get_can_focus():
+                        self.main_view.flow_box.grab_focus()
+                        logger.debug("FlowBox focused after toggle from terminal")
+                        return False
+                return True  # Try again if not ready
+            
+            # Try multiple times with increasing delays
+            GLib.timeout_add(50, focus_flowbox)
+            GLib.timeout_add(150, focus_flowbox)
+            GLib.timeout_add(300, focus_flowbox)
+        else:
+            # If in web view or other, switch to main view
+            self.stack.set_visible_child_name("main")
+            # Focus FlowBox
+            GLib.timeout_add(150, self._focus_flowbox)
     
     def _on_window_realize(self, window):
         """Handle window realization - focus FlowBox when window is first shown."""
@@ -347,7 +431,7 @@ class CommandoWindow(Adw.ApplicationWindow):
         return False
     
     def _setup_bottom_terminal(self):
-        """Setup bottom terminal widget based on config."""
+        """Setup embedded terminal widget based on config."""
         show_terminal = self.config.get("terminal.show_in_main_window", False)
         if show_terminal:
             self._create_bottom_terminal()
@@ -355,21 +439,21 @@ class CommandoWindow(Adw.ApplicationWindow):
             self._remove_bottom_terminal()
     
     def _create_bottom_terminal(self):
-        """Create bottom terminal widget with full TerminalView."""
-        if self.bottom_terminal_view is not None and self.bottom_terminal_widget is not None:
+        """Create embedded terminal widget (bottom terminal in main window)."""
+        if self.embedded_terminal_view is not None and self.embedded_terminal_widget is not None:
             # Already exists, make sure it's visible and in the paned
-            if self.main_paned.get_end_child() != self.bottom_terminal_widget:
+            if self.main_paned.get_end_child() != self.embedded_terminal_widget:
                 # Widget exists but not in paned, add it back
-                self.main_paned.set_end_child(self.bottom_terminal_widget)
-            self.bottom_terminal_widget.set_visible(True)
+                self.main_paned.set_end_child(self.embedded_terminal_widget)
+            self.embedded_terminal_widget.set_visible(True)
             return
         
         try:
             # Create full TerminalView (with tabs support)
-            self.bottom_terminal_view = TerminalView()
+            self.embedded_terminal_view = TerminalView()
             
             # Set minimum height for the terminal view
-            self.bottom_terminal_view.set_size_request(-1, 150)  # Minimum 150px height
+            self.embedded_terminal_view.set_size_request(-1, 150)  # Minimum 150px height
             
             # Create a frame/container for the terminal
             frame = Gtk.Frame()
@@ -377,7 +461,15 @@ class CommandoWindow(Adw.ApplicationWindow):
             frame.set_margin_end(0)
             frame.set_margin_top(0)
             frame.set_margin_bottom(0)
-            frame.set_child(self.bottom_terminal_view)
+            # Make frame focusable so clicks can focus the terminal
+            frame.set_focusable(True)
+            frame.set_can_focus(False)  # Frame itself shouldn't take focus, but should pass it to child
+            frame.set_child(self.embedded_terminal_view)
+            
+            # Connect to frame click to focus terminal
+            click_controller = Gtk.GestureClick()
+            click_controller.connect("pressed", lambda *args: self._focus_embedded_terminal_on_click())
+            frame.add_controller(click_controller)
             
             # Set the frame as the second (bottom) child of the paned
             # This makes it resizable via drag
@@ -401,35 +493,55 @@ class CommandoWindow(Adw.ApplicationWindow):
             # Try to set position after a short delay to ensure widget is allocated
             GLib.timeout_add(100, set_initial_position)
             
-            self.bottom_terminal_widget = frame
+            self.embedded_terminal_widget = frame
             
-            # Update executor to use bottom terminal when visible
+            # Ensure embedded terminal can receive focus
+            self.embedded_terminal_view.set_focusable(True)
+            self.embedded_terminal_view.set_can_focus(True)
+            
+            # Update executor to use embedded terminal when visible
             if hasattr(self.main_view, 'executor'):
-                self.main_view.executor.bottom_terminal_view = self.bottom_terminal_view
-                logger.debug("Connected bottom terminal to executor")
+                self.main_view.executor.embedded_terminal_view = self.embedded_terminal_view
+                logger.debug("Connected embedded terminal to executor")
             
-            logger.info("Bottom terminal created with full TerminalView (resizable)")
+            logger.info("Embedded terminal created with full TerminalView (resizable)")
+            
+            # Ensure embedded terminal can receive focus
+            self.embedded_terminal_view.set_focusable(True)
+            self.embedded_terminal_view.set_can_focus(True)
         except Exception as e:
-            logger.error(f"Failed to create bottom terminal: {e}", exc_info=True)
+            logger.error(f"Failed to create embedded terminal: {e}", exc_info=True)
+    
+    def _focus_embedded_terminal_on_click(self):
+        """Focus the embedded terminal when clicked."""
+        if self.embedded_terminal_view:
+            def focus_terminal():
+                if self.embedded_terminal_view:
+                    self.embedded_terminal_view.focus_current_terminal()
+                return False
+            # Try multiple times to ensure focus works
+            GLib.idle_add(focus_terminal)
+            GLib.timeout_add(50, focus_terminal)
+            GLib.timeout_add(200, focus_terminal)
     
     def _remove_bottom_terminal(self):
-        """Remove bottom terminal widget."""
-        if self.bottom_terminal_view is not None:
+        """Remove embedded terminal widget."""
+        if self.embedded_terminal_view is not None:
             # Cleanup the terminal view
-            self.bottom_terminal_view.cleanup()
+            self.embedded_terminal_view.cleanup()
             
             # Remove from paned
-            if self.bottom_terminal_widget:
+            if self.embedded_terminal_widget:
                 self.main_paned.set_end_child(None)
             
-            self.bottom_terminal_widget = None
-            self.bottom_terminal_view = None
+            self.embedded_terminal_widget = None
+            self.embedded_terminal_view = None
             
-            # Update executor to remove bottom terminal reference
+            # Update executor to remove embedded terminal reference
             if hasattr(self.main_view, 'executor'):
-                self.main_view.executor.bottom_terminal_view = None
+                self.main_view.executor.embedded_terminal_view = None
             
-            logger.info("Bottom terminal removed")
+            logger.info("Embedded terminal removed")
     
     def cleanup(self):
         """Clean up resources."""
@@ -441,9 +553,9 @@ class CommandoWindow(Adw.ApplicationWindow):
             if hasattr(self, "main_view"):
                 logger.debug("Cleaning up main view")
                 self.main_view.cleanup()
-            if hasattr(self, "terminal_view"):
-                logger.debug("Cleaning up terminal view")
-                self.terminal_view.cleanup()
+            if hasattr(self, "standalone_terminal_view"):
+                logger.debug("Cleaning up standalone terminal view")
+                self.standalone_terminal_view.cleanup()
             if hasattr(self, "web_view"):
                 logger.debug("Cleaning up web view")
                 self.web_view.cleanup()

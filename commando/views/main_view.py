@@ -31,6 +31,14 @@ class MainView(Adw.Bin):
         self.config = Config()
         self.cards: dict[int, CommandCard] = {}
         
+        # Number input for direct card selection
+        self.number_input = ""
+        self.number_input_timeout_id = None
+        
+        # Number input for direct card selection
+        self.number_input = ""
+        self.number_input_timeout_id = None
+        
         # Main scrolled window
         self.scrolled = Gtk.ScrolledWindow()
         self.scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
@@ -85,18 +93,32 @@ class MainView(Adw.Bin):
     
     def _create_toolbar(self):
         """Create the toolbar with search and controls."""
-        toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        toolbar.set_margin_start(24)
-        toolbar.set_margin_end(24)
-        toolbar.set_margin_top(12)
-        toolbar.set_margin_bottom(12)
+        toolbar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         
-        # Search entry
+        # Search entry wrapped in a revealer (hidden by default)
         self.search_entry = Gtk.SearchEntry()
         self.search_entry.set_placeholder_text("Search commands...")
         self.search_entry.set_hexpand(True)
         self.search_entry.connect("search-changed", self._on_search_changed)
-        toolbar.append(self.search_entry)
+        self.search_entry.connect("activate", self._on_search_activate)
+        
+        # Wrap search entry in a revealer
+        self.search_revealer = Gtk.Revealer()
+        self.search_revealer.set_child(self.search_entry)
+        self.search_revealer.set_reveal_child(False)  # Hidden by default
+        self.search_revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
+        self.search_revealer.set_margin_start(24)
+        self.search_revealer.set_margin_end(24)
+        self.search_revealer.set_margin_top(0)
+        self.search_revealer.set_margin_bottom(0)
+        toolbar.append(self.search_revealer)
+        
+        # Controls box (sort, layout, new button)
+        controls_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        controls_box.set_margin_start(24)
+        controls_box.set_margin_end(24)
+        controls_box.set_margin_top(12)
+        controls_box.set_margin_bottom(12)
         
         # Sort combo
         self.sort_combo = Gtk.ComboBoxText()
@@ -106,7 +128,7 @@ class MainView(Adw.Bin):
         self.sort_combo.append("category", "Category")
         self.sort_combo.set_active_id("number")
         self.sort_combo.connect("changed", self._on_sort_changed)
-        toolbar.append(self.sort_combo)
+        controls_box.append(self.sort_combo)
         
         # Layout toggle (default: grid layout, active state)
         layout_toggle = Gtk.ToggleButton()
@@ -115,13 +137,15 @@ class MainView(Adw.Bin):
         layout_toggle.set_active(True)  # Grid is default
         layout_toggle.connect("toggled", self._on_layout_toggled)
         self.layout_toggle = layout_toggle  # Store reference for tooltip updates
-        toolbar.append(layout_toggle)
+        controls_box.append(layout_toggle)
         
         # New command button
         new_button = Gtk.Button(icon_name="list-add-symbolic")
         new_button.set_tooltip_text("New Command")
         new_button.connect("clicked", self._on_new_command)
-        toolbar.append(new_button)
+        controls_box.append(new_button)
+        
+        toolbar.append(controls_box)
         
         return toolbar
     
@@ -175,6 +199,15 @@ class MainView(Adw.Bin):
         elif sort_by == "category":
             commands.sort(key=lambda c: c.category.lower(), reverse=not ascending)
     
+    def toggle_search(self):
+        """Toggle search bar visibility."""
+        current_state = self.search_revealer.get_reveal_child()
+        self.search_revealer.set_reveal_child(not current_state)
+        if not current_state:
+            # Search bar is being shown, focus it
+            GLib.idle_add(self.search_entry.grab_focus)
+        return not current_state
+    
     def _on_search_changed(self, entry):
         """Handle search text changes."""
         query = entry.get_text().lower()
@@ -182,18 +215,65 @@ class MainView(Adw.Bin):
             # Show all cards
             for card in self.cards.values():
                 card.set_visible(True)
+            # Also show all FlowBoxChildren
+            child = self.flow_box.get_first_child()
+            while child is not None:
+                child.set_visible(True)
+                child = child.get_next_sibling()
+            # Select first card when search is cleared
+            GLib.idle_add(self._select_first_card)
         else:
-            # Filter cards
-            for number, card in self.cards.items():
-                command = card.command
-                match = (
-                    query in command.title.lower() or
-                    query in command.command.lower() or
-                    query in command.tag.lower() or
-                    query in command.category.lower() or
-                    query in str(command.number)
-                )
-                card.set_visible(match)
+            # Filter cards - hide both the card and its FlowBoxChild wrapper
+            first_visible_child = None
+            child = self.flow_box.get_first_child()
+            while child is not None:
+                card = child.get_child()
+                if isinstance(card, CommandCard):
+                    command = card.command
+                    match = (
+                        query in command.title.lower() or
+                        query in command.command.lower() or
+                        query in (command.tag or "").lower() or
+                        query in (command.category or "").lower() or
+                        query in str(command.number)
+                    )
+                    # Hide both the card and its FlowBoxChild wrapper
+                    card.set_visible(match)
+                    child.set_visible(match)
+                    # Track first visible child for selection
+                    if match and first_visible_child is None:
+                        first_visible_child = child
+                child = child.get_next_sibling()
+            
+            # Select the first matching card
+            if first_visible_child:
+                self.flow_box.select_child(first_visible_child)
+                self._scroll_to_child(first_visible_child)
+                # Ensure FlowBox has focus
+                GLib.idle_add(self.flow_box.grab_focus)
+    
+    def _on_search_activate(self, entry):
+        """Handle Enter key in search entry - execute first matching command."""
+        query = entry.get_text().lower().strip()
+        if not query:
+            return
+        
+        # Find the first visible (matching) card in FlowBox order
+        # This ensures we get the first match as displayed visually
+        child = self.flow_box.get_first_child()
+        while child is not None:
+            card = child.get_child()
+            if isinstance(card, CommandCard) and card.get_visible():
+                # Found first matching card, execute it
+                logger.info(f"Executing first search match: {card.command.title}")
+                self.execute_command(card.command)
+                # Clear search and hide search bar
+                entry.set_text("")
+                self.search_revealer.set_reveal_child(False)
+                # Return focus to FlowBox
+                GLib.idle_add(self.flow_box.grab_focus)
+                break
+            child = child.get_next_sibling()
     
     def _on_sort_changed(self, combo):
         """Handle sort change."""
@@ -272,12 +352,71 @@ class MainView(Adw.Bin):
                     logger.info(f"Executing command from Enter key: {card.command.title}")
                     self.execute_command(card.command)
                 return True  # Event handled
+        
+        # Handle number key presses for direct card selection
+        if self._is_number_key(keyval):
+            return self._handle_number_key(keyval)
+        
         # Handle arrow key navigation
         elif keyval in (Gdk.KEY_Up, Gdk.KEY_Down, Gdk.KEY_Left, Gdk.KEY_Right, 
                         Gdk.KEY_KP_Up, Gdk.KEY_KP_Down, Gdk.KEY_KP_Left, Gdk.KEY_KP_Right):
             return self._handle_arrow_key(keyval)
         
         return False  # Event not handled
+    
+    def _is_number_key(self, keyval):
+        """Check if keyval is a number key (0-9)."""
+        return (Gdk.KEY_0 <= keyval <= Gdk.KEY_9) or (Gdk.KEY_KP_0 <= keyval <= Gdk.KEY_KP_9)
+    
+    def _get_number_from_keyval(self, keyval):
+        """Convert keyval to a number string."""
+        if Gdk.KEY_0 <= keyval <= Gdk.KEY_9:
+            return str(keyval - Gdk.KEY_0)
+        elif Gdk.KEY_KP_0 <= keyval <= Gdk.KEY_KP_9:
+            return str(keyval - Gdk.KEY_KP_0)
+        return None
+    
+    def _handle_number_key(self, keyval):
+        """Handle number key press for direct card selection."""
+        number_str = self._get_number_from_keyval(keyval)
+        if number_str is None:
+            return False
+        
+        # Cancel previous timeout
+        if self.number_input_timeout_id:
+            GLib.source_remove(self.number_input_timeout_id)
+            self.number_input_timeout_id = None
+        
+        # Append to number input
+        self.number_input += number_str
+        
+        # Try to find and select the card
+        try:
+            number = int(self.number_input)
+            card = self.cards.get(number)
+            if card:
+                # Find the FlowBoxChild that contains this card
+                for child in self.flow_box:
+                    if child.get_child() == card:
+                        self.flow_box.select_child(child)
+                        self._scroll_to_child(child)
+                        # Ensure FlowBox maintains focus
+                        self.flow_box.grab_focus()
+                        logger.debug(f"Selected card #{number} via number input")
+                        break
+        except ValueError:
+            pass
+        
+        # Set timeout to reset number input after 1 second of no input
+        self.number_input_timeout_id = GLib.timeout_add(1000, self._reset_number_input)
+        
+        return True  # Event handled
+    
+    def _reset_number_input(self):
+        """Reset the number input."""
+        self.number_input = ""
+        self.number_input_timeout_id = None
+        return False  # Don't repeat
     
     def _handle_arrow_key(self, keyval):
         """Handle arrow key navigation."""
@@ -388,43 +527,51 @@ class MainView(Adw.Bin):
     def execute_command(self, command: Command):
         """Execute a command."""
         # Only switch to terminal view if command doesn't have no_terminal flag
-        # AND bottom terminal is not available
+        # AND embedded terminal is not available
         if not getattr(command, 'no_terminal', False):
-            # Check if bottom terminal is available
-            # If it is, don't switch views - command will execute in bottom terminal
-            if not hasattr(self.executor, 'bottom_terminal_view') or not self.executor.bottom_terminal_view:
-                # No bottom terminal, switch to terminal view
+            # Check if embedded terminal is available
+            # If it is, don't switch views - command will execute in embedded terminal
+            if not hasattr(self.executor, 'embedded_terminal_view') or not self.executor.embedded_terminal_view:
+                # No embedded terminal, switch to standalone terminal view
                 self._switch_to_terminal_view()
                 # Focus the terminal after switching
                 self._focus_terminal()
             else:
-                # Bottom terminal is available, focus it instead
-                self._focus_bottom_terminal()
+                # Embedded terminal is available, focus it instead
+                self._focus_embedded_terminal()
         # Execute the command
         self.executor.execute(command)
     
     def _focus_terminal(self):
-        """Focus the terminal view."""
-        # Find the parent window and get terminal view
+        """Focus the standalone terminal view."""
+        # Find the parent window and get standalone terminal view
         parent = self.get_parent()
         while parent is not None:
             if isinstance(parent, Adw.ViewStack):
-                # Get the terminal view from the stack
-                terminal_view = parent.get_child_by_name("terminal")
-                if terminal_view and hasattr(terminal_view, 'focus_current_terminal'):
+                # Get the standalone terminal view from the stack
+                standalone_terminal_view = parent.get_child_by_name("terminal")
+                if standalone_terminal_view and hasattr(standalone_terminal_view, 'focus_current_terminal'):
                     # Use GLib.idle_add to ensure focus happens after view switch
-                    GLib.idle_add(terminal_view.focus_current_terminal)
+                    GLib.idle_add(standalone_terminal_view.focus_current_terminal)
                 break
             parent = parent.get_parent()
     
-    def _focus_bottom_terminal(self):
-        """Focus the bottom terminal."""
-        if hasattr(self.executor, 'bottom_terminal_view') and self.executor.bottom_terminal_view:
-            # Focus the bottom terminal
-            GLib.idle_add(self.executor.bottom_terminal_view.focus_current_terminal)
+    def _focus_embedded_terminal(self):
+        """Focus the embedded terminal (bottom terminal in main window)."""
+        if hasattr(self.executor, 'embedded_terminal_view') and self.executor.embedded_terminal_view:
+            # Focus the embedded terminal - use timeout to ensure it's ready
+            def focus_terminal():
+                if self.executor.embedded_terminal_view:
+                    self.executor.embedded_terminal_view.focus_current_terminal()
+                return False  # Don't repeat
+            
+            # Try multiple times with increasing delays to ensure terminal is ready
+            GLib.timeout_add(50, focus_terminal)
+            GLib.timeout_add(200, focus_terminal)
+            GLib.timeout_add(500, focus_terminal)
     
     def _switch_to_terminal_view(self):
-        """Switch to the terminal view."""
+        """Switch to the standalone terminal view."""
         # Find the parent Adw.ViewStack
         parent = self.get_parent()
         while parent is not None:

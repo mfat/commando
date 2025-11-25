@@ -28,10 +28,24 @@ class TerminalView(Adw.Bin):
         self.terminals: list[Vte.Terminal] = []
         self.terminal_pids: dict[Vte.Terminal, int] = {}  # Store PID for each terminal
         
+        # Make TerminalView focusable
+        self.set_focusable(True)
+        self.set_can_focus(True)
+        
         # Tab view
         self.tab_view = Adw.TabView()
         self.tab_overview = Adw.TabOverview()
         self.tab_overview.set_view(self.tab_view)
+        
+        # Connect to tab view signals to focus terminal when tab is selected
+        self.tab_view.connect("notify::selected-page", self._on_tab_selected)
+        
+        # Add keyboard controller to handle shortcuts even when terminal has focus
+        # Use CAPTURE phase to intercept events before they reach child widgets
+        key_controller = Gtk.EventControllerKey()
+        key_controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        key_controller.connect("key-pressed", self._on_key_pressed)
+        self.add_controller(key_controller)
         
         # Main box
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
@@ -95,9 +109,18 @@ class TerminalView(Adw.Bin):
             terminal = Vte.Terminal()
             terminal.set_size(80, 24)
             
-            # Make terminal focusable
+            # Make terminal focusable and ensure it can receive keyboard input
             terminal.set_focusable(True)
             terminal.set_can_focus(True)
+            # Ensure terminal receives keyboard events
+            terminal.set_can_target(True)
+            
+            # Add keyboard controller to intercept Ctrl+Shift+E even when terminal has focus
+            # Use CAPTURE phase to intercept events before VTE processes them
+            terminal_key_controller = Gtk.EventControllerKey()
+            terminal_key_controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+            terminal_key_controller.connect("key-pressed", self._on_terminal_key_pressed)
+            terminal.add_controller(terminal_key_controller)
             
             # Configure terminal
             self._configure_terminal(terminal)
@@ -141,7 +164,19 @@ class TerminalView(Adw.Bin):
                         def execute_cmd():
                             try:
                                 terminal.feed_child(command_to_execute.encode() + b"\n")
-                                terminal.grab_focus()
+                                # Ensure terminal can receive focus
+                                terminal.set_focusable(True)
+                                terminal.set_can_focus(True)
+                                terminal.set_can_target(True)
+                                # Focus the terminal with multiple attempts
+                                def focus_terminal():
+                                    terminal.grab_focus()
+                                    logger.debug(f"Focused terminal after command execution: {command_to_execute}")
+                                    return False
+                                # Try focusing immediately and with delays
+                                GLib.idle_add(focus_terminal)
+                                GLib.timeout_add(50, focus_terminal)
+                                GLib.timeout_add(200, focus_terminal)
                                 logger.info(f"Executed command in new terminal tab: {command_to_execute}")
                             except Exception as e:
                                 logger.error(f"Failed to execute command in terminal: {e}")
@@ -178,6 +213,18 @@ class TerminalView(Adw.Bin):
             
             # Set as current page (this will be done automatically by append, but ensure it)
             self.tab_view.set_selected_page(page)
+            
+            # If no command to execute, focus the terminal after creation
+            if not command_to_execute:
+                # Focus the terminal after a short delay to ensure it's ready
+                def focus_new_terminal():
+                    terminal.set_focusable(True)
+                    terminal.set_can_focus(True)
+                    terminal.set_can_target(True)
+                    terminal.grab_focus()
+                    logger.debug("Focused new terminal tab")
+                    return False
+                GLib.timeout_add(200, focus_new_terminal)
             
             logger.info("Created new terminal tab")
             
@@ -296,8 +343,54 @@ class TerminalView(Adw.Bin):
                         terminal.grab_focus()
                         logger.info(f"Executed command in terminal: {command}")
     
+    def _on_tab_selected(self, tab_view, param):
+        """Handle tab selection change - focus the terminal in the selected tab."""
+        GLib.idle_add(self.focus_current_terminal)
+    
+    def _on_key_pressed(self, controller, keyval, keycode, state):
+        """Handle keyboard input - intercept Ctrl+Shift+E to toggle views."""
+        logger.debug(f"TerminalView._on_key_pressed: keyval={keyval}, state={state}")
+        result = self._handle_toggle_shortcut(keyval, state)
+        if result:
+            return True  # Event handled
+        return False  # Event not handled
+    
+    def _on_terminal_key_pressed(self, controller, keyval, keycode, state):
+        """Handle keyboard input on terminal widget - intercept Ctrl+Shift+E."""
+        # This is called when the terminal widget itself has focus
+        logger.debug(f"Vte.Terminal._on_terminal_key_pressed: keyval={keyval}, state={state}")
+        if self._handle_toggle_shortcut(keyval, state):
+            return True  # Event handled, prevent terminal from processing it
+        return False  # Let terminal process the event
+    
+    def _handle_toggle_shortcut(self, keyval, state):
+        """Handle Ctrl+Shift+E shortcut to toggle views."""
+        # Check for Ctrl+Shift+E (E key with Ctrl and Shift modifiers)
+        ctrl_mask = Gdk.ModifierType.CONTROL_MASK
+        shift_mask = Gdk.ModifierType.SHIFT_MASK
+        
+        if (keyval == Gdk.KEY_e or keyval == Gdk.KEY_E) and \
+           (state & ctrl_mask) and (state & shift_mask):
+            # Find the parent window and call the toggle method
+            # Pass self so the window knows which terminal triggered it
+            parent = self.get_root()
+            logger.debug(f"Ctrl+Shift+E pressed in terminal, parent: {parent}, has toggle method: {hasattr(parent, '_toggle_cards_terminal') if parent else False}")
+            if parent and hasattr(parent, '_toggle_cards_terminal'):
+                parent._toggle_cards_terminal(from_terminal=self)
+                return True  # Event handled
+            else:
+                logger.warning(f"Could not find parent window or toggle method. Parent: {parent}")
+        return False  # Event not handled
+    
     def focus_current_terminal(self):
         """Focus the current terminal tab."""
+        # If no tabs exist, create one first
+        if self.tab_view.get_n_pages() == 0:
+            self._create_terminal_tab()
+            # Use a timeout to focus after the terminal is created
+            GLib.timeout_add(200, self._focus_terminal_after_creation)
+            return True
+        
         page = self.tab_view.get_selected_page()
         if page:
             child = page.get_child()
@@ -305,9 +398,43 @@ class TerminalView(Adw.Bin):
             if isinstance(child, Gtk.Box) and child.get_first_child():
                 terminal = child.get_first_child()
                 if isinstance(terminal, Vte.Terminal):
+                    # Ensure terminal can receive focus and keyboard input
+                    terminal.set_focusable(True)
+                    terminal.set_can_focus(True)
+                    terminal.set_can_target(True)
+                    # Focus the terminal
                     terminal.grab_focus()
+                    logger.debug("Terminal focused")
+                    # Also ensure the TerminalView itself can receive focus
+                    self.set_focusable(True)
+                    self.set_can_focus(True)
                     return True
+        
+        # If no terminal found, try to create one and focus it
+        if self.tab_view.get_n_pages() == 0:
+            self._create_terminal_tab()
+            GLib.timeout_add(200, self._focus_terminal_after_creation)
+        
         return False
+    
+    def _focus_terminal_after_creation(self):
+        """Focus terminal after it's been created (callback for timeout)."""
+        page = self.tab_view.get_selected_page()
+        if page:
+            child = page.get_child()
+            if isinstance(child, Gtk.Box) and child.get_first_child():
+                terminal = child.get_first_child()
+                if isinstance(terminal, Vte.Terminal):
+                    terminal.set_focusable(True)
+                    terminal.set_can_focus(True)
+                    terminal.set_can_target(True)
+                    terminal.grab_focus()
+                    logger.debug("Terminal focused after creation")
+                    # Also ensure the TerminalView itself can receive focus
+                    self.set_focusable(True)
+                    self.set_can_focus(True)
+                    return False  # Don't repeat
+        return False  # Don't repeat
     
     def cleanup(self):
         """Clean up resources."""
