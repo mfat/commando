@@ -6,10 +6,8 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-gi.require_version("Vte", "3.91")
 
-from gi.repository import Gtk, Adw, GLib, Gio, Vte, Pango
-import os
+from gi.repository import Gtk, Adw, GLib, Gio
 
 from commando.logger import get_logger
 from commando.config import Config
@@ -51,21 +49,8 @@ class CommandoWindow(Adw.ApplicationWindow):
         self.speed_dial = SpeedDial(None)  # Will be set after main_view is created
         self.main_box.append(self.speed_dial)
         
-        # Create paned widget for resizable bottom terminal
-        # This allows the user to drag to resize the terminal
-        self.main_paned = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
-        self.main_paned.set_vexpand(True)
-        self.main_paned.set_hexpand(True)
-        self.main_box.append(self.main_paned)
-        
         # Set main box as content
         self.set_content(self.main_box)
-        
-        # Initialize bottom terminal variables
-        self.bottom_terminal_view = None
-        self.bottom_terminal_widget = None
-        
-        # Setup bottom terminal based on config (after views are created)
         
         # Create views
         try:
@@ -100,11 +85,6 @@ class CommandoWindow(Adw.ApplicationWindow):
         self.stack.add_titled(self.terminal_view, "terminal", "Terminal")
         self.stack.add_titled(self.web_view, "web", "Web")
         
-        # Set stack as the first (top) child of the paned directly
-        # No need for an extra content_box wrapper
-        self.main_paned.set_start_child(self.stack)
-        # The bottom terminal will be set as the second (bottom) child when created
-        
         # Update speed dial with main_view reference
         self.speed_dial.main_view = self.main_view
         
@@ -116,9 +96,6 @@ class CommandoWindow(Adw.ApplicationWindow):
         
         # Keyboard navigation
         self._setup_keyboard_navigation()
-        
-        # Setup bottom terminal based on config
-        self._setup_bottom_terminal()
         
         logger.info("CommandoWindow initialized")
     
@@ -182,10 +159,10 @@ class CommandoWindow(Adw.ApplicationWindow):
         
         self.header.set_title_widget(self.view_switcher)
         
-        # Stack will be added to paned later (not to main_box)
-        # Make it expand to fill available space
+        # Add stack to main box - make it expand to fill available space
         self.stack.set_vexpand(True)
         self.stack.set_hexpand(True)
+        self.main_box.append(self.stack)
     
     def _apply_theme(self):
         """Apply the current theme."""
@@ -301,96 +278,10 @@ class CommandoWindow(Adw.ApplicationWindow):
         # Return False to allow default close behavior
         return False
     
-    def _setup_bottom_terminal(self):
-        """Setup bottom terminal widget based on config."""
-        show_terminal = self.config.get("terminal.show_in_main_window", False)
-        if show_terminal:
-            self._create_bottom_terminal()
-        else:
-            self._remove_bottom_terminal()
-    
-    def _create_bottom_terminal(self):
-        """Create bottom terminal widget with full TerminalView."""
-        if self.bottom_terminal_view is not None:
-            # Already exists, just show it
-            if self.bottom_terminal_widget:
-                self.bottom_terminal_widget.set_visible(True)
-            return
-        
-        try:
-            # Create full TerminalView (with tabs support)
-            self.bottom_terminal_view = TerminalView()
-            
-            # Set minimum height for the terminal view
-            self.bottom_terminal_view.set_size_request(-1, 150)  # Minimum 150px height
-            
-            # Create a frame/container for the terminal
-            frame = Gtk.Frame()
-            frame.set_margin_start(0)
-            frame.set_margin_end(0)
-            frame.set_margin_top(0)
-            frame.set_margin_bottom(0)
-            frame.set_child(self.bottom_terminal_view)
-            
-            # Set the frame as the second (bottom) child of the paned
-            # This makes it resizable via drag
-            self.main_paned.set_end_child(frame)
-            self.main_paned.set_resize_end_child(True)  # Allow resizing
-            self.main_paned.set_shrink_end_child(False)  # Don't shrink below minimum
-            
-            # Set initial position so terminal gets about 200px initially
-            # Use a timeout to set position after the widget is allocated
-            def set_initial_position():
-                allocation = self.main_paned.get_allocation()
-                if allocation.height > 0:
-                    # Set position so terminal gets about 200px
-                    initial_pos = allocation.height - 200
-                    if initial_pos > 100:  # Ensure reasonable minimum for top pane
-                        self.main_paned.set_position(initial_pos)
-                        return False  # Don't repeat
-                # If not allocated yet, try again
-                return True  # Repeat until allocated
-            
-            # Try to set position after a short delay to ensure widget is allocated
-            GLib.timeout_add(100, set_initial_position)
-            
-            self.bottom_terminal_widget = frame
-            
-            # Update executor to use bottom terminal when visible
-            if hasattr(self.main_view, 'executor'):
-                self.main_view.executor.bottom_terminal_view = self.bottom_terminal_view
-                logger.debug("Connected bottom terminal to executor")
-            
-            logger.info("Bottom terminal created with full TerminalView (resizable)")
-        except Exception as e:
-            logger.error(f"Failed to create bottom terminal: {e}", exc_info=True)
-    
-    def _remove_bottom_terminal(self):
-        """Remove bottom terminal widget."""
-        if self.bottom_terminal_view is not None:
-            # Cleanup the terminal view
-            self.bottom_terminal_view.cleanup()
-            
-            # Remove from paned
-            if self.bottom_terminal_widget:
-                self.main_paned.set_end_child(None)
-            
-            self.bottom_terminal_widget = None
-            self.bottom_terminal_view = None
-            
-            # Update executor to remove bottom terminal reference
-            if hasattr(self.main_view, 'executor'):
-                self.main_view.executor.bottom_terminal_view = None
-            
-            logger.info("Bottom terminal removed")
-    
     def cleanup(self):
         """Clean up resources."""
         logger.info("Cleaning up window")
         try:
-            # Clean up bottom terminal
-            self._remove_bottom_terminal()
-            
             if hasattr(self, "main_view"):
                 logger.debug("Cleaning up main view")
                 self.main_view.cleanup()
