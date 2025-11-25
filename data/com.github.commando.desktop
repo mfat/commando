@@ -1,0 +1,14 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Commando
+GenericName=Command Manager
+Comment=A GNOME application for saving and running user-defined Linux commands
+Exec=commando
+Icon=com.github.commando
+Terminal=false
+Categories=Utility;System;TerminalEmulator;
+Keywords=command;terminal;shell;executor;
+StartupNotify=true
+MimeType=
+

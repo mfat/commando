@@ -1,0 +1,5 @@
+include README.md
+include LICENSE
+recursive-include commando/data *.ui *.css *.desktop *.metainfo.xml
+recursive-include commando/data/icons **/*
+

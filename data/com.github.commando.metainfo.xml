@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.github.commando</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Commando</name>
+  <summary>A GNOME application for saving and running user-defined Linux commands</summary>
+  <description>
+    <p>
+      Commando is a GNOME application that allows you to save and quickly execute
+      your frequently used Linux commands. Organize commands with customizable
+      cards featuring icons, colors, tags, and categories.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>Save and organize commands with customizable cards</li>
+      <li>Quick execution via speed dial (type number + Enter)</li>
+      <li>Built-in terminal with tab support</li>
+      <li>Web view for documentation and web pages</li>
+      <li>Search, filter, and sort commands</li>
+      <li>Full keyboard navigation</li>
+      <li>Light, dark, and system theme support</li>
+    </ul>
+  </description>
+  <url type="homepage">https://github.com/commando/commando</url>
+  <url type="bugtracker">https://github.com/commando/commando/issues</url>
+  <url type="help">https://github.com/commando/commando/wiki</url>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Main view with command cards</caption>
+    </screenshot>
+  </screenshots>
+  <releases>
+    <release version="0.1.0" date="2024-01-01">
+      <description>
+        <p>Initial release</p>
+      </description>
+    </release>
+  </releases>
+  <provides>
+    <binary>commando</binary>
+  </provides>
+</component>
+

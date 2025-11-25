@@ -1,0 +1,23 @@
+# Maintainer: Commando Developers <dev@commando.example>
+pkgname=commando
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="A GNOME application for saving and running user-defined Linux commands"
+arch=('any')
+url="https://github.com/commando/commando"
+license=('GPL3')
+depends=('python' 'python-gobject' 'gtk4' 'libadwaita' 'vte3' 'webkit2gtk')
+makedepends=('python-setuptools')
+source=("$pkgname-$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+  cd "$srcdir/$pkgname-$pkgver"
+  python setup.py build
+}
+
+package() {
+  cd "$srcdir/$pkgname-$pkgver"
+  python setup.py install --root="$pkgdir" --optimize=1 --skip-build
+}
+

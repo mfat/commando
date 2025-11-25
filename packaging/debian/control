@@ -1,0 +1,31 @@
+Source: commando
+Section: utils
+Priority: optional
+Maintainer: Commando Developers <dev@commando.example>
+Build-Depends: debhelper-compat (= 13),
+               dh-python,
+               python3-all,
+               python3-setuptools,
+               python3-gi,
+               gir1.2-gtk-4.0,
+               gir1.2-adw-1,
+               gir1.2-vte-3.91,
+               gir1.2-webkit-6.0
+Standards-Version: 4.6.0
+Homepage: https://github.com/commando/commando
+Rules-Requires-Root: no
+
+Package: commando
+Architecture: all
+Depends: ${python3:Depends},
+         ${misc:Depends},
+         python3-gi,
+         gir1.2-gtk-4.0,
+         gir1.2-adw-1,
+         gir1.2-vte-3.91,
+         gir1.2-webkit-6.0
+Description: A GNOME application for saving and running user-defined Linux commands
+ Commando allows you to save and quickly execute your frequently used
+ Linux commands. Organize commands with customizable cards featuring
+ icons, colors, tags, and categories.
+

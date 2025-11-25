@@ -1,0 +1,45 @@
+app-id: com.github.commando
+runtime: org.gnome.Platform
+runtime-version: '45'
+sdk: org.gnome.Sdk
+command: commando
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=x11
+  - --socket=fallback-x11
+  - --socket=pulseaudio
+  - --device=dri
+  - --talk-name=org.freedesktop.Flatpak
+  - --filesystem=home
+  - --filesystem=host
+
+modules:
+  - name: python3
+    buildsystem: simple
+    build-commands:
+      - pip3 install --no-index --find-links="file://${PWD}" --prefix=${FLATPAK_DEST} "setuptools"
+      - pip3 install --no-index --find-links="file://${PWD}" --prefix=${FLATPAK_DEST} "wheel"
+    sources:
+      - type: archive
+        url: https://www.python.org/ftp/python/3.11.0/Python-3.11.0.tgz
+        sha256: a57dc82d77358617ba65b9849ceb1d9acbcaae2103360ae377b9434390bf5e5e
+
+  - name: commando
+    buildsystem: simple
+    build-commands:
+      - pip3 install --no-index --find-links="file://${PWD}" --prefix=${FLATPAK_DEST} .
+    sources:
+      - type: dir
+        path: ..
+
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /lib/*.a
+  - /lib/*.la
+  - /share/gtk-doc
+  - /share/man
+  - '*.a'
+  - '*.la'
+

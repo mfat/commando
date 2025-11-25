@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "commando"
+version = "0.1.0"
+description = "A GNOME application for saving and running user-defined Linux commands"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "GPL-3.0-or-later"}
+authors = [
+    {name = "Commando Developers"}
+]
+keywords = ["gnome", "gtk", "terminal", "commands", "productivity"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "PyGObject>=3.42.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "black",
+    "flake8",
+    "mypy",
+]
+
+[project.scripts]
+commando = "commando.main:main"
+
+[tool.setuptools]
+packages = ["commando"]
+
+[tool.setuptools.package-data]
+commando = ["data/*.ui", "data/*.css", "data/*.desktop", "data/*.metainfo.xml", "data/icons/**/*"]
+
