@@ -51,21 +51,14 @@ class CommandoWindow(Adw.ApplicationWindow):
         self.speed_dial = SpeedDial(None)  # Will be set after main_view is created
         self.main_box.append(self.speed_dial)
         
-        # Create paned widget for resizable bottom terminal
-        # This allows the user to drag to resize the terminal
-        self.main_paned = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
-        self.main_paned.set_vexpand(True)
-        self.main_paned.set_hexpand(True)
-        self.main_box.append(self.main_paned)
+        # Content box for main views
+        self.content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.content_box.set_vexpand(True)
+        self.content_box.set_hexpand(True)
+        self.main_box.append(self.content_box)
         
         # Set main box as content
         self.set_content(self.main_box)
-        
-        # Initialize terminal mode 2 variables (bottom terminal in main window)
-        self.terminal_mode_2_view = None
-        self.terminal_mode_2_widget = None
-        
-        # Setup bottom terminal based on config (after views are created)
         
         # Create views
         try:
@@ -107,10 +100,8 @@ class CommandoWindow(Adw.ApplicationWindow):
         self.connect("realize", self._on_window_realize)
         self.connect("notify::visible", self._on_window_visible_changed)
         
-        # Set stack as the first (top) child of the paned directly
-        # No need for an extra content_box wrapper
-        self.main_paned.set_start_child(self.stack)
-        # The bottom terminal will be set as the second (bottom) child when created
+        # Add stack to content box
+        self.content_box.append(self.stack)
         
         # Update speed dial with main_view reference
         self.speed_dial.main_view = self.main_view
@@ -123,9 +114,6 @@ class CommandoWindow(Adw.ApplicationWindow):
         
         # Keyboard navigation
         self._setup_keyboard_navigation()
-        
-        # Setup bottom terminal based on config
-        self._setup_bottom_terminal()
         
         logger.info("CommandoWindow initialized")
     
@@ -314,42 +302,15 @@ class CommandoWindow(Adw.ApplicationWindow):
         """
         current_view = self.stack.get_visible_child_name()
         
-        # Determine which terminal is active
-        # If from_terminal is provided, we know which one triggered it
-        is_terminal_mode_2 = False
-        if from_terminal:
-            is_terminal_mode_2 = (from_terminal == self.terminal_mode_2_view)
-        else:
-            # Check if terminal mode 2 is active by checking focus
-            focus_widget = self.get_focus()
-            if focus_widget and self.terminal_mode_2_view:
-                # Walk up the widget tree to see if focus is in terminal mode 2
-                parent = focus_widget
-                while parent:
-                    if parent == self.terminal_mode_2_view or parent == self.terminal_mode_2_widget:
-                        is_terminal_mode_2 = True
-                        break
-                    parent = parent.get_parent() if hasattr(parent, 'get_parent') else None
-                    if parent == self.terminal_mode_1_view:
-                        # Focus is in terminal mode 1, not mode 2
-                        break
-        
         if current_view == "main":
-            # Switch to terminal - prefer terminal mode 2 if enabled, otherwise terminal mode 1
-            if self.terminal_mode_2_view and self.terminal_mode_2_widget and self.terminal_mode_2_widget.get_visible():
-                # Terminal mode 2 is available, focus it
-                if hasattr(self.terminal_mode_2_view, 'focus_current_terminal'):
-                    GLib.timeout_add(100, self.terminal_mode_2_view.focus_current_terminal)
-                    GLib.timeout_add(300, self.terminal_mode_2_view.focus_current_terminal)
-            else:
-                # Switch to terminal mode 1 view
-                self.stack.set_visible_child_name("terminal")
-                # Focus the terminal
-                if hasattr(self.terminal_mode_1_view, 'focus_current_terminal'):
-                    GLib.timeout_add(100, self.terminal_mode_1_view.focus_current_terminal)
-                    GLib.timeout_add(300, self.terminal_mode_1_view.focus_current_terminal)
-        elif current_view == "terminal" or is_terminal_mode_2:
-            # Switch to main (cards) view - either from terminal view or bottom terminal
+            # Switch to terminal view
+            self.stack.set_visible_child_name("terminal")
+            # Focus the terminal
+            if hasattr(self.terminal_mode_1_view, 'focus_current_terminal'):
+                GLib.timeout_add(100, self.terminal_mode_1_view.focus_current_terminal)
+                GLib.timeout_add(300, self.terminal_mode_1_view.focus_current_terminal)
+        elif current_view == "terminal":
+            # Switch to main (cards) view
             self.stack.set_visible_child_name("main")
             # Explicitly focus FlowBox after switching
             def focus_flowbox():
@@ -430,126 +391,10 @@ class CommandoWindow(Adw.ApplicationWindow):
         # Return False to allow default close behavior
         return False
     
-    def _setup_bottom_terminal(self):
-        """Setup embedded terminal widget based on config."""
-        show_terminal = self.config.get("terminal.show_in_main_window", False)
-        if show_terminal:
-            self._create_bottom_terminal()
-        else:
-            self._remove_bottom_terminal()
-    
-    def _create_bottom_terminal(self):
-        """Create terminal mode 2 widget (bottom terminal in main window)."""
-        if self.terminal_mode_2_view is not None and self.terminal_mode_2_widget is not None:
-            # Already exists, make sure it's visible and in the paned
-            if self.main_paned.get_end_child() != self.terminal_mode_2_widget:
-                # Widget exists but not in paned, add it back
-                self.main_paned.set_end_child(self.terminal_mode_2_widget)
-            self.terminal_mode_2_widget.set_visible(True)
-            return
-        
-        try:
-            # Create full TerminalView (with tabs support)
-            self.terminal_mode_2_view = TerminalView()
-            
-            # Set minimum height for the terminal view
-            self.terminal_mode_2_view.set_size_request(-1, 150)  # Minimum 150px height
-            
-            # Create a frame/container for the terminal
-            frame = Gtk.Frame()
-            frame.set_margin_start(0)
-            frame.set_margin_end(0)
-            frame.set_margin_top(0)
-            frame.set_margin_bottom(0)
-            # Make frame focusable so clicks can focus the terminal
-            frame.set_focusable(True)
-            frame.set_can_focus(False)  # Frame itself shouldn't take focus, but should pass it to child
-            frame.set_child(self.terminal_mode_2_view)
-            
-            # Connect to frame click to focus terminal
-            click_controller = Gtk.GestureClick()
-            click_controller.connect("pressed", lambda *args: self._focus_terminal_mode_2_on_click())
-            frame.add_controller(click_controller)
-            
-            # Set the frame as the second (bottom) child of the paned
-            # This makes it resizable via drag
-            self.main_paned.set_end_child(frame)
-            self.main_paned.set_resize_end_child(True)  # Allow resizing
-            self.main_paned.set_shrink_end_child(False)  # Don't shrink below minimum
-            
-            # Set initial position so terminal gets about 200px initially
-            # Use a timeout to set position after the widget is allocated
-            def set_initial_position():
-                allocation = self.main_paned.get_allocation()
-                if allocation.height > 0:
-                    # Set position so terminal gets about 200px
-                    initial_pos = allocation.height - 200
-                    if initial_pos > 100:  # Ensure reasonable minimum for top pane
-                        self.main_paned.set_position(initial_pos)
-                        return False  # Don't repeat
-                # If not allocated yet, try again
-                return True  # Repeat until allocated
-            
-            # Try to set position after a short delay to ensure widget is allocated
-            GLib.timeout_add(100, set_initial_position)
-            
-            self.terminal_mode_2_widget = frame
-            
-            # Ensure terminal mode 2 can receive focus
-            self.terminal_mode_2_view.set_focusable(True)
-            self.terminal_mode_2_view.set_can_focus(True)
-            
-            # Update executor to use terminal mode 2 when visible
-            if hasattr(self.main_view, 'executor'):
-                self.main_view.executor.terminal_mode_2_view = self.terminal_mode_2_view
-                logger.debug("Connected terminal mode 2 to executor")
-            
-            logger.info("Terminal mode 2 created with full TerminalView (resizable)")
-            
-            # Ensure terminal mode 2 can receive focus
-            self.terminal_mode_2_view.set_focusable(True)
-            self.terminal_mode_2_view.set_can_focus(True)
-        except Exception as e:
-            logger.error(f"Failed to create embedded terminal: {e}", exc_info=True)
-    
-    def _focus_terminal_mode_2_on_click(self):
-        """Focus terminal mode 2 when clicked."""
-        if self.terminal_mode_2_view:
-            def focus_terminal():
-                if self.terminal_mode_2_view:
-                    self.terminal_mode_2_view.focus_current_terminal()
-                return False
-            # Try multiple times to ensure focus works
-            GLib.idle_add(focus_terminal)
-            GLib.timeout_add(50, focus_terminal)
-            GLib.timeout_add(200, focus_terminal)
-    
-    def _remove_bottom_terminal(self):
-        """Remove terminal mode 2 widget."""
-        if self.terminal_mode_2_view is not None:
-            # Cleanup the terminal view
-            self.terminal_mode_2_view.cleanup()
-            
-            # Remove from paned
-            if self.terminal_mode_2_widget:
-                self.main_paned.set_end_child(None)
-            
-            self.terminal_mode_2_widget = None
-            self.terminal_mode_2_view = None
-            
-            # Update executor to remove terminal mode 2 reference
-            if hasattr(self.main_view, 'executor'):
-                self.main_view.executor.terminal_mode_2_view = None
-            
-            logger.info("Terminal mode 2 removed")
-    
     def cleanup(self):
         """Clean up resources."""
         logger.info("Cleaning up window")
         try:
-            # Clean up bottom terminal
-            self._remove_bottom_terminal()
-            
             if hasattr(self, "main_view"):
                 logger.debug("Cleaning up main view")
                 self.main_view.cleanup()

@@ -19,8 +19,7 @@ class CommandExecutor:
     def __init__(self):
         """Initialize executor."""
         self.config = Config()
-        self.terminal_mode_1_view = None  # Terminal mode 1: terminal view in ViewStack
-        self.terminal_mode_2_view = None  # Terminal mode 2: terminal at bottom of main window
+        self.terminal_mode_1_view = None  # Terminal view in ViewStack
     
     def set_terminal_view(self, terminal_view):
         """Set the terminal mode 1 view for internal execution."""
@@ -52,32 +51,23 @@ class CommandExecutor:
         """Execute command in internal terminal."""
         logger.info(f"Executing command in internal terminal: {command.command}")
         
-        # Prefer terminal mode 2 if it exists (it's only created when setting is enabled)
-        # Otherwise use terminal mode 1
-        target_terminal = None
-        if self.terminal_mode_2_view:
-            target_terminal = self.terminal_mode_2_view
-            logger.debug("Using terminal mode 2 for command execution")
-        elif self.terminal_mode_1_view:
-            target_terminal = self.terminal_mode_1_view
-            logger.debug("Using terminal mode 1 for command execution")
-        
-        if target_terminal:
-            # Execute in the selected terminal
-            target_terminal.execute_command(command.command, create_new_tab=True)
-            # Focus the terminal after executing command - use multiple attempts
-            # The execute_command method will also try to focus, but we add extra attempts here
+        if self.terminal_mode_1_view:
+            # Execute in terminal view
+            self.terminal_mode_1_view.execute_command(command.command, create_new_tab=True)
+            # Focus the terminal after executing command
             from gi.repository import GLib
+            
             def focus_terminal():
-                if target_terminal:
-                    target_terminal.focus_current_terminal()
+                if self.terminal_mode_1_view:
+                    result = self.terminal_mode_1_view.focus_current_terminal()
+                    logger.debug(f"focus_current_terminal returned: {result}")
                 return False  # Don't repeat
             
             # Try multiple times with increasing delays to ensure terminal is ready
-            # Start with longer delays since the terminal needs to spawn first
             GLib.timeout_add(200, focus_terminal)  # After spawn
             GLib.timeout_add(400, focus_terminal)  # After command execution
             GLib.timeout_add(800, focus_terminal)  # Final attempt
+            GLib.timeout_add(1200, focus_terminal)  # Extra attempt for reliability
         else:
             logger.warning("No terminal view available, falling back to external")
             self._execute_external(command)

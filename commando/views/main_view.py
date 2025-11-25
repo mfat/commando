@@ -527,18 +527,11 @@ class MainView(Adw.Bin):
     def execute_command(self, command: Command):
         """Execute a command."""
         # Only switch to terminal view if command doesn't have no_terminal flag
-        # AND terminal mode 2 is not available
         if not getattr(command, 'no_terminal', False):
-            # Check if terminal mode 2 is available
-            # If it is, don't switch views - command will execute in terminal mode 2
-            if not hasattr(self.executor, 'terminal_mode_2_view') or not self.executor.terminal_mode_2_view:
-                # No terminal mode 2, switch to terminal mode 1 view
-                self._switch_to_terminal_view()
-                # Focus the terminal after switching
-                self._focus_terminal()
-            else:
-                # Terminal mode 2 is available, focus it instead
-                self._focus_terminal_mode_2()
+            # Switch to terminal view
+            self._switch_to_terminal_view()
+            # Focus the terminal after switching
+            self._focus_terminal()
         # Execute the command
         self.executor.execute(command)
     
@@ -555,20 +548,6 @@ class MainView(Adw.Bin):
                     GLib.idle_add(terminal_mode_1_view.focus_current_terminal)
                 break
             parent = parent.get_parent()
-    
-    def _focus_terminal_mode_2(self):
-        """Focus terminal mode 2 (bottom terminal in main window)."""
-        if hasattr(self.executor, 'terminal_mode_2_view') and self.executor.terminal_mode_2_view:
-            # Focus terminal mode 2 - use timeout to ensure it's ready
-            def focus_terminal():
-                if self.executor.terminal_mode_2_view:
-                    self.executor.terminal_mode_2_view.focus_current_terminal()
-                return False  # Don't repeat
-            
-            # Try multiple times with increasing delays to ensure terminal is ready
-            GLib.timeout_add(50, focus_terminal)
-            GLib.timeout_add(200, focus_terminal)
-            GLib.timeout_add(500, focus_terminal)
     
     def _switch_to_terminal_view(self):
         """Switch to terminal mode 1 view."""

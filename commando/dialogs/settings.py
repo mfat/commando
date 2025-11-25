@@ -84,17 +84,6 @@ class SettingsDialog(Adw.PreferencesWindow):
         external_row.add_suffix(external_entry)
         group.add(external_row)
         
-        # Show terminal in main window
-        show_terminal_row = Adw.ActionRow(
-            title="Show Terminal in Main Window",
-            subtitle="Display a terminal widget at the bottom of the main window"
-        )
-        show_terminal_switch = Gtk.Switch()
-        show_terminal_switch.set_active(self.config.get("terminal.show_in_main_window", False))
-        show_terminal_switch.connect("notify::active", self._on_show_terminal_changed)
-        show_terminal_row.add_suffix(show_terminal_switch)
-        group.add(show_terminal_row)
-        
         page.add(group)
         self.add(page)
     
@@ -157,13 +146,6 @@ class SettingsDialog(Adw.PreferencesWindow):
         """Handle external terminal change."""
         text = entry.get_text().strip()
         self.config.set("terminal.external_terminal", text if text else None)
-    
-    def _on_show_terminal_changed(self, switch, param):
-        """Handle show terminal in main window change."""
-        self.config.set("terminal.show_in_main_window", switch.get_active())
-        # Notify the main window to update immediately
-        if self.parent_window and hasattr(self.parent_window, '_setup_bottom_terminal'):
-            self.parent_window._setup_bottom_terminal()
     
     def _on_theme_changed(self, combo):
         """Handle theme change."""
