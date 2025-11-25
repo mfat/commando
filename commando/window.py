@@ -223,10 +223,10 @@ class CommandoWindow(Adw.ApplicationWindow):
         )
         shortcut_controller.add_shortcut(shortcut)
         
-        # Ctrl+F to focus search
+        # Ctrl+Shift+F to toggle search bar
         shortcut = Gtk.Shortcut.new(
-            Gtk.ShortcutTrigger.parse_string("<Primary>f"),
-            Gtk.CallbackAction.new(self._focus_search)
+            Gtk.ShortcutTrigger.parse_string("<Primary><Shift>f"),
+            Gtk.CallbackAction.new(self._toggle_search)
         )
         shortcut_controller.add_shortcut(shortcut)
         
@@ -246,10 +246,14 @@ class CommandoWindow(Adw.ApplicationWindow):
         
         self.add_controller(shortcut_controller)
     
-    def _focus_search(self, *args):
-        """Focus the search entry."""
-        if hasattr(self.main_view, "search_entry"):
-            self.main_view.search_entry.grab_focus()
+    def _toggle_search(self, *args):
+        """Toggle search bar visibility and focus it when shown."""
+        if hasattr(self.main_view, "search_revealer"):
+            current_state = self.main_view.search_revealer.get_reveal_child()
+            self.main_view.search_revealer.set_reveal_child(not current_state)
+            if not current_state:
+                # Search bar is being shown, focus it
+                GLib.idle_add(self.main_view.search_entry.grab_focus)
     
     def _on_home_clicked(self, button):
         """Handle home button click - switch to main view."""

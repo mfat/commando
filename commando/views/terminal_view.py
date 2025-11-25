@@ -28,9 +28,11 @@ class TerminalView(Adw.Bin):
         self.terminals: list[Vte.Terminal] = []
         self.terminal_pids: dict[Vte.Terminal, int] = {}  # Store PID for each terminal
         
-        # Make TerminalView focusable
+        # Make TerminalView focusable and expand to fill available space
         self.set_focusable(True)
         self.set_can_focus(True)
+        self.set_vexpand(True)
+        self.set_hexpand(True)
         
         # Tab view
         self.tab_view = Adw.TabView()
@@ -49,6 +51,8 @@ class TerminalView(Adw.Bin):
         
         # Main box
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        main_box.set_vexpand(True)
+        main_box.set_hexpand(True)
         
         # Toolbar
         toolbar = self._create_toolbar()
@@ -58,7 +62,7 @@ class TerminalView(Adw.Bin):
         self.tab_bar = Adw.TabBar(view=self.tab_view)
         main_box.append(self.tab_bar)
         
-        # Tab view (the actual content) - make it expand
+        # Tab view (the actual content) - make it expand to fill remaining space
         self.tab_view.set_vexpand(True)
         self.tab_view.set_hexpand(True)
         main_box.append(self.tab_view)
@@ -201,6 +205,9 @@ class TerminalView(Adw.Bin):
             
             # Wrap terminal in a box for proper sizing
             terminal_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+            # Make terminal expand to fill the box
+            terminal.set_vexpand(True)
+            terminal.set_hexpand(True)
             terminal_box.append(terminal)
             
             # Create page

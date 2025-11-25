@@ -82,12 +82,18 @@ class MainView(Adw.Bin):
         toolbar.set_margin_top(12)
         toolbar.set_margin_bottom(12)
         
-        # Search entry
+        # Search entry wrapped in a revealer (hidden by default)
         self.search_entry = Gtk.SearchEntry()
         self.search_entry.set_placeholder_text("Search commands...")
         self.search_entry.set_hexpand(True)
         self.search_entry.connect("search-changed", self._on_search_changed)
-        toolbar.append(self.search_entry)
+        
+        # Wrap search entry in a revealer
+        self.search_revealer = Gtk.Revealer()
+        self.search_revealer.set_child(self.search_entry)
+        self.search_revealer.set_reveal_child(False)  # Hidden by default
+        self.search_revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_DOWN)
+        toolbar.append(self.search_revealer)
         
         # Sort combo
         self.sort_combo = Gtk.ComboBoxText()
