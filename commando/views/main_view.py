@@ -233,7 +233,8 @@ class MainView(Adw.Bin):
             for child in self.flow_box:
                 if child.get_child() == card:
                     self.flow_box.select_child(child)
-                    child.grab_focus()
+                    # Ensure FlowBox has focus so arrow keys work
+                    self.flow_box.grab_focus()
                     break
     
     def _on_card_double_click(self, command: Command):
@@ -251,9 +252,11 @@ class MainView(Adw.Bin):
     
     def _on_selection_changed(self, flow_box):
         """Handle selection change in flow box."""
-        # This is called when selection changes, but we don't need to do anything here
-        # The Enter key handler will execute the selected command
-        pass
+        # When selection changes, ensure FlowBox has focus so arrow keys continue to work
+        # This is especially important when bottom terminal is active
+        if flow_box.get_selected_children():
+            # Use idle_add to ensure focus happens after selection is complete
+            GLib.idle_add(self.flow_box.grab_focus)
     
     def _on_key_pressed(self, controller, keyval, keycode, state):
         """Handle keyboard input on flow box."""
@@ -309,6 +312,8 @@ class MainView(Adw.Bin):
                 if next_child:
                     self.flow_box.select_child(next_child)
                     self._scroll_to_child(next_child)
+                    # Ensure FlowBox maintains focus
+                    self.flow_box.grab_focus()
                     return True
         
         elif keyval in (Gdk.KEY_Left, Gdk.KEY_KP_Left):
@@ -319,6 +324,8 @@ class MainView(Adw.Bin):
                 if next_child:
                     self.flow_box.select_child(next_child)
                     self._scroll_to_child(next_child)
+                    # Ensure FlowBox maintains focus
+                    self.flow_box.grab_focus()
                     return True
         
         elif keyval in (Gdk.KEY_Down, Gdk.KEY_KP_Down):
@@ -329,6 +336,8 @@ class MainView(Adw.Bin):
                 if next_child:
                     self.flow_box.select_child(next_child)
                     self._scroll_to_child(next_child)
+                    # Ensure FlowBox maintains focus
+                    self.flow_box.grab_focus()
                     return True
         
         elif keyval in (Gdk.KEY_Up, Gdk.KEY_KP_Up):
@@ -339,6 +348,8 @@ class MainView(Adw.Bin):
                 if next_child:
                     self.flow_box.select_child(next_child)
                     self._scroll_to_child(next_child)
+                    # Ensure FlowBox maintains focus
+                    self.flow_box.grab_focus()
                     return True
         
         return True  # Event handled (even if no movement)
