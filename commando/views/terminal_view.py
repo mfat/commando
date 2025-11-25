@@ -356,6 +356,10 @@ class TerminalView(Adw.Bin):
     
     def _on_key_pressed(self, controller, keyval, keycode, state):
         """Handle keyboard input - intercept Ctrl+Shift+E to toggle views."""
+        # Only handle keys when terminal view is visible
+        if not self.get_visible():
+            return False
+        
         logger.debug(f"TerminalView._on_key_pressed: keyval={keyval}, state={state}")
         result = self._handle_toggle_shortcut(keyval, state)
         if result:

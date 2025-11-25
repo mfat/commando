@@ -37,6 +37,9 @@ class MainView(Adw.Bin):
         # Make scrolled window expand to fill available space
         self.scrolled.set_vexpand(True)
         self.scrolled.set_hexpand(True)
+        # ScrolledWindow should not take focus - let FlowBox receive it
+        self.scrolled.set_focusable(False)
+        self.scrolled.set_can_focus(False)
         
         # Toolbar
         toolbar = self._create_toolbar()
@@ -67,10 +70,13 @@ class MainView(Adw.Bin):
         self.flow_box.set_activate_on_single_click(False)
         # Connect to selection changed to handle Enter key
         self.flow_box.connect("selected-children-changed", self._on_selection_changed)
-        # Add keyboard controller for Enter key
+        # Add keyboard controller to MainView so it receives events even if FlowBox doesn't have focus
+        # This ensures keyboard navigation works even when FlowBox focus fails
+        # Use CAPTURE phase to intercept events before they reach child widgets
         key_controller = Gtk.EventControllerKey()
+        key_controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
         key_controller.connect("key-pressed", self._on_key_pressed)
-        self.flow_box.add_controller(key_controller)
+        self.add_controller(key_controller)
         
         self.scrolled.set_child(self.flow_box)
         
@@ -79,7 +85,8 @@ class MainView(Adw.Bin):
         # Load commands
         self._load_commands()
         
-        # Keyboard navigation
+        # MainView should be focusable to receive keyboard events for navigation
+        # But we'll try to pass focus to FlowBox when possible
         self.set_focusable(True)
         self.set_can_focus(True)
     
@@ -304,8 +311,14 @@ class MainView(Adw.Bin):
         # Adw.Dialog uses close() instead of destroy()
         dialog.close()
     
-    def _select_first_card_and_focus(self):
+    def _select_first_card_and_focus(self, retry_count=0):
         """Select the first card and focus the FlowBox."""
+        MAX_RETRIES = 10  # Prevent infinite loops
+        
+        if retry_count >= MAX_RETRIES:
+            logger.warning("First card selection and focus failed after maximum retries")
+            return False
+        
         first_child = self.flow_box.get_first_child()
         if first_child:
             self.flow_box.select_child(first_child)
@@ -313,10 +326,11 @@ class MainView(Adw.Bin):
             if self.flow_box.get_visible() and self.flow_box.get_can_focus():
                 self.flow_box.grab_focus()
                 logger.debug("First card selected and FlowBox focused")
+                return False  # Success, don't repeat
             else:
                 # Retry if not ready
-                GLib.timeout_add(50, self._select_first_card_and_focus)
-                return True  # Repeat
+                GLib.timeout_add(50, lambda: self._select_first_card_and_focus(retry_count + 1))
+                return False  # Don't repeat in this call
         return False  # Don't repeat
     
     def _on_selection_changed(self, flow_box):
@@ -326,8 +340,25 @@ class MainView(Adw.Bin):
         pass
     
     def _on_key_pressed(self, controller, keyval, keycode, state):
-        """Handle keyboard input on flow box."""
+        """Handle keyboard input on main view."""
         from gi.repository import Gdk
+        
+        # Only handle keys when main view is visible and has cards
+        if not self.flow_box.get_visible() or len(self.cards) == 0:
+            return False
+        
+        # Check if we're actually in the main view (not in terminal or web view)
+        # Get parent window to check current view
+        parent = self.get_parent()
+        while parent is not None:
+            if isinstance(parent, Adw.ViewStack):
+                if parent.get_visible_child() != self:
+                    # Not in main view, don't handle keys
+                    return False
+                break
+            parent = parent.get_parent()
+        
+        logger.debug(f"MainView key pressed: keyval={keyval}, main_view_has_focus={self.has_focus()}, flow_box_has_focus={self.flow_box.has_focus()}")
         
         # Check if Enter or Return key was pressed
         if keyval == Gdk.KEY_Return or keyval == Gdk.KEY_KP_Enter:
@@ -341,11 +372,20 @@ class MainView(Adw.Bin):
                     logger.info(f"Executing command from Enter key: {card.command.title}")
                     self.execute_command(card.command)
                 return True  # Event handled
+            else:
+                # No selection, select first card
+                first_child = self.flow_box.get_first_child()
+                if first_child:
+                    self.flow_box.select_child(first_child)
+                return True
         
         # Handle arrow key navigation
         elif keyval in (Gdk.KEY_Up, Gdk.KEY_Down, Gdk.KEY_Left, Gdk.KEY_Right, 
                         Gdk.KEY_KP_Up, Gdk.KEY_KP_Down, Gdk.KEY_KP_Left, Gdk.KEY_KP_Right):
-            return self._handle_arrow_key(keyval)
+            logger.debug(f"Arrow key pressed: {keyval}, handling navigation")
+            result = self._handle_arrow_key(keyval)
+            logger.debug(f"Arrow key handling result: {result}")
+            return result
         
         return False  # Event not handled
     
@@ -353,6 +393,7 @@ class MainView(Adw.Bin):
         """Handle arrow key navigation."""
         from gi.repository import Gdk
         
+        # Ensure a card is selected before navigating
         selected = self.flow_box.get_selected_children()
         current_child = selected[0] if selected else None
         
@@ -362,6 +403,7 @@ class MainView(Adw.Bin):
             if first_child:
                 self.flow_box.select_child(first_child)
                 self._scroll_to_child(first_child)
+                logger.debug("Selected first card in arrow key handler")
             return True
         
         # Get current index

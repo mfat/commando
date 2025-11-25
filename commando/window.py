@@ -259,6 +259,38 @@ class CommandoWindow(Adw.ApplicationWindow):
         shortcut_controller.add_shortcut(shortcut)
         
         self.add_controller(shortcut_controller)
+        
+        # Add a window-level keyboard controller for arrow keys and Enter
+        # This ensures keyboard navigation works regardless of which view has focus
+        from gi.repository import Gdk
+        key_controller = Gtk.EventControllerKey()
+        key_controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        key_controller.connect("key-pressed", self._on_window_key_pressed)
+        self.add_controller(key_controller)
+    
+    def _on_window_key_pressed(self, controller, keyval, keycode, state):
+        """Handle keyboard input at window level - route to appropriate view."""
+        from gi.repository import Gdk
+        
+        # Only handle keys when main view is visible
+        if self.stack.get_visible_child() != self.main_view:
+            return False
+        
+        # Check if it's an arrow key or Enter key
+        is_arrow = keyval in (Gdk.KEY_Up, Gdk.KEY_Down, Gdk.KEY_Left, Gdk.KEY_Right,
+                              Gdk.KEY_KP_Up, Gdk.KEY_KP_Down, Gdk.KEY_KP_Left, Gdk.KEY_KP_Right)
+        is_enter = keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter)
+        
+        if is_arrow or is_enter:
+            # Forward to MainView's keyboard handler
+            if hasattr(self.main_view, '_on_key_pressed'):
+                # Create a dummy controller for the call
+                result = self.main_view._on_key_pressed(controller, keyval, keycode, state)
+                if result:
+                    logger.debug(f"Window-level keyboard handler forwarded key {keyval} to MainView, handled={result}")
+                return result
+        
+        return False
     
     def _toggle_search(self, *args):
         """Toggle search bar visibility and focus it when shown."""
@@ -271,46 +303,185 @@ class CommandoWindow(Adw.ApplicationWindow):
     
     def _on_home_clicked(self, button):
         """Handle home button click - switch to main view."""
+        # First, remove focus from terminal view if it has focus
+        if hasattr(self, 'terminal_view') and self.terminal_view.has_focus():
+            # Remove focus from terminal by focusing the window itself temporarily
+            self.grab_focus()
+            logger.debug("Removed focus from terminal view")
+        
         self.stack.set_visible_child_name("main")
+        # The _on_stack_visible_child_changed handler will focus MainView
+        # But we also ensure focus here with multiple retries
+        def focus_main_view():
+            if hasattr(self.main_view, 'flow_box'):
+                # Ensure MainView is visible and realized
+                if not self.main_view.get_visible() or not self.main_view.get_realized():
+                    logger.debug("MainView not ready yet, will retry")
+                    return True  # Retry
+                
+                # Ensure a card is selected
+                selected = self.main_view.flow_box.get_selected_children()
+                if not selected:
+                    first_child = self.main_view.flow_box.get_first_child()
+                    if first_child:
+                        self.main_view.flow_box.select_child(first_child)
+                        logger.debug("Selected first card after home button")
+                
+                # Focus MainView so it can receive keyboard events
+                self.main_view.grab_focus()
+                has_focus = self.main_view.has_focus()
+                logger.debug(f"MainView focused after home button: has_focus={has_focus}")
+                
+                if not has_focus:
+                    # Retry if focus failed
+                    return True
+                return False  # Success, don't retry
+            return False
+        
+        # Use multiple timeouts with increasing delays
+        GLib.timeout_add(100, focus_main_view)
+        GLib.timeout_add(200, focus_main_view)
+        GLib.timeout_add(400, focus_main_view)
     
     def _on_window_realize(self, window):
-        """Handle window realization - focus FlowBox when window is first shown."""
-        # When window is realized, focus the FlowBox if main view is visible
+        """Handle window realization - focus MainView when window is first shown."""
+        # When window is realized, focus MainView if main view is visible
         if self.stack.get_visible_child() == self.main_view:
             if hasattr(self.main_view, 'flow_box'):
-                # Use a small timeout to ensure everything is ready
-                GLib.timeout_add(150, self._focus_flowbox)
+                def focus_main_view():
+                    # Ensure a card is selected
+                    selected = self.main_view.flow_box.get_selected_children()
+                    if not selected:
+                        first_child = self.main_view.flow_box.get_first_child()
+                        if first_child:
+                            self.main_view.flow_box.select_child(first_child)
+                    
+                    # Focus MainView so it can receive keyboard events
+                    self.main_view.grab_focus()
+                    logger.debug(f"MainView focused on window realize: has_focus={self.main_view.has_focus()}")
+                    return False
+                GLib.timeout_add(150, focus_main_view)
     
     def _on_window_visible_changed(self, window, param):
-        """Handle window visibility change - focus FlowBox when window becomes visible."""
+        """Handle window visibility change - focus MainView when window becomes visible."""
         if window.get_visible() and self.stack.get_visible_child() == self.main_view:
             if hasattr(self.main_view, 'flow_box'):
-                # Use a small timeout to ensure everything is ready
-                GLib.timeout_add(150, self._focus_flowbox)
+                def focus_main_view():
+                    # Ensure a card is selected
+                    selected = self.main_view.flow_box.get_selected_children()
+                    if not selected:
+                        first_child = self.main_view.flow_box.get_first_child()
+                        if first_child:
+                            self.main_view.flow_box.select_child(first_child)
+                    
+                    # Focus MainView so it can receive keyboard events
+                    self.main_view.grab_focus()
+                    logger.debug(f"MainView focused on window visible: has_focus={self.main_view.has_focus()}")
+                    return False
+                GLib.timeout_add(150, focus_main_view)
     
-    def _focus_flowbox(self):
+    def _focus_flowbox(self, retry_count=0):
         """Focus the FlowBox."""
+        MAX_RETRIES = 10  # Prevent infinite loops
+        
+        if retry_count >= MAX_RETRIES:
+            logger.warning("FlowBox focus failed after maximum retries")
+            return False
+        
         if hasattr(self.main_view, 'flow_box'):
             flow_box = self.main_view.flow_box
-            # Make sure FlowBox is visible and can receive focus
-            if flow_box.get_visible() and flow_box.get_can_focus():
+            if flow_box.get_visible():
+                # Ensure parent widgets allow focus to pass through
+                # ScrolledWindow should allow focus to reach FlowBox
+                if hasattr(self.main_view, 'scrolled'):
+                    self.main_view.scrolled.set_focusable(False)
+                    self.main_view.scrolled.set_can_focus(False)
+                
+                # MainView should be focusable to receive keyboard events
+                # But we'll still try to focus FlowBox for better UX
+                self.main_view.set_focusable(True)
+                self.main_view.set_can_focus(True)
+                
+                # Ensure a card is selected (required for keyboard navigation)
+                selected = flow_box.get_selected_children()
+                if not selected:
+                    # No card selected, select the first one
+                    first_child = flow_box.get_first_child()
+                    if first_child:
+                        flow_box.select_child(first_child)
+                        logger.debug("Selected first card in _focus_flowbox")
+                
+                # Ensure FlowBox can receive focus
+                flow_box.set_can_focus(True)
+                flow_box.set_focusable(True)
+                
+                # Ensure FlowBox is realized before trying to focus
+                if not flow_box.get_realized():
+                    logger.debug(f"FlowBox not realized yet, will retry (attempt {retry_count + 1})")
+                    GLib.timeout_add(50, lambda: self._focus_flowbox(retry_count + 1))
+                    return False  # Don't repeat in this call
+                
+                # Try to grab focus
                 flow_box.grab_focus()
-                logger.debug("FlowBox focused")
-                return False  # Don't repeat
+                # Verify focus was actually set
+                if flow_box.has_focus():
+                    logger.debug("FlowBox focused successfully - has_focus=True")
+                    return False  # Success, don't repeat
+                else:
+                    logger.debug(f"FlowBox grab_focus() called but has_focus() is False - retrying (attempt {retry_count + 1})")
+                    # Try again after a short delay if not ready yet
+                    GLib.timeout_add(50, lambda: self._focus_flowbox(retry_count + 1))
+                    return False  # Don't repeat in this call
             else:
-                # Try again after a short delay if not ready yet
-                GLib.timeout_add(50, self._focus_flowbox)
-                return True  # Repeat
+                logger.debug(f"FlowBox not visible yet, will retry (attempt {retry_count + 1})")
+                # Try again after a short delay if not visible yet
+                GLib.timeout_add(50, lambda: self._focus_flowbox(retry_count + 1))
+                return False  # Don't repeat in this call
+        else:
+            logger.debug("FlowBox not found in main_view")
         return False  # Don't repeat
     
     def _on_stack_visible_child_changed(self, stack, param):
-        """Handle stack visible child change - focus FlowBox when main view is shown."""
+        """Handle stack visible child change - focus MainView when main view is shown."""
         visible_child = stack.get_visible_child()
         if visible_child == self.main_view:
-            # Main view is now visible, focus the FlowBox
-            if hasattr(self.main_view, 'flow_box'):
-                # Use a small delay to ensure the view is fully visible
-                GLib.timeout_add(50, self._focus_flowbox)
+            # Main view is now visible, remove focus from terminal if it has it
+            if hasattr(self, 'terminal_view') and self.terminal_view.has_focus():
+                # Remove focus from terminal by focusing the window itself temporarily
+                self.grab_focus()
+                logger.debug("Removed focus from terminal view in stack change")
+            
+            # Main view is now visible, focus MainView so it can receive keyboard events
+            def focus_main_view():
+                if hasattr(self.main_view, 'flow_box'):
+                    # Ensure MainView is visible and realized
+                    if not self.main_view.get_visible() or not self.main_view.get_realized():
+                        logger.debug("MainView not ready yet in stack change, will retry")
+                        return True  # Retry
+                    
+                    # Ensure a card is selected
+                    selected = self.main_view.flow_box.get_selected_children()
+                    if not selected:
+                        first_child = self.main_view.flow_box.get_first_child()
+                        if first_child:
+                            self.main_view.flow_box.select_child(first_child)
+                            logger.debug("Selected first card after stack change")
+                    
+                    # Focus MainView so it can receive keyboard events
+                    self.main_view.grab_focus()
+                    has_focus = self.main_view.has_focus()
+                    logger.debug(f"MainView focused after stack change: has_focus={has_focus}")
+                    
+                    if not has_focus:
+                        # Retry if focus failed
+                        return True
+                    return False  # Success, don't retry
+                return False
+            
+            # Use multiple timeouts with increasing delays
+            GLib.timeout_add(100, focus_main_view)
+            GLib.timeout_add(200, focus_main_view)
+            GLib.timeout_add(400, focus_main_view)
     
     def _on_settings(self, action, param):
         """Open settings dialog."""
