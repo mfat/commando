@@ -7,7 +7,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Gtk, Adw, GLib
+from gi.repository import Gtk, Adw, GLib, Gdk
 
 from commando.models.command import Command
 from commando.storage.command_storage import CommandStorage
@@ -48,7 +48,7 @@ class MainView(Adw.Bin):
         
         # Flow box for cards
         self.flow_box = Gtk.FlowBox()
-        self.flow_box.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.flow_box.set_selection_mode(Gtk.SelectionMode.SINGLE)  # Enable selection for keyboard navigation
         self.flow_box.set_homogeneous(False)  # Don't force equal sizes
         self.flow_box.set_max_children_per_line(4)
         self.flow_box.set_min_children_per_line(1)
@@ -60,7 +60,16 @@ class MainView(Adw.Bin):
         self.flow_box.set_margin_bottom(24)
         # Align items to start (top) to prevent stretching
         self.flow_box.set_valign(Gtk.Align.START)
+        # Make FlowBox focusable for keyboard navigation
+        self.flow_box.set_focusable(True)
+        self.flow_box.set_can_focus(True)
         # Prevent FlowBox from expanding children
+        # Connect to selection changed to handle Enter key
+        self.flow_box.connect("selected-children-changed", self._on_selection_changed)
+        # Add keyboard controller for Enter key
+        key_controller = Gtk.EventControllerKey()
+        key_controller.connect("key-pressed", self._on_key_pressed)
+        self.flow_box.add_controller(key_controller)
         self.flow_box.set_activate_on_single_click(False)
         
         self.scrolled.set_child(self.flow_box)
@@ -148,6 +157,9 @@ class MainView(Adw.Bin):
             )
             self.flow_box.append(card)
             self.cards[command.number] = card
+        
+        # Select the first card after loading (use idle_add to ensure widgets are allocated)
+        GLib.idle_add(self._select_first_card)
     
     def _sort_commands(self, commands: list[Command]):
         """Sort commands based on current sort setting."""
@@ -211,15 +223,156 @@ class MainView(Adw.Bin):
         self._edit_command(new_command)
     
     def _on_card_click(self, command: Command):
-        """Handle card click."""
+        """Handle card click - only select, don't execute."""
         logger.debug(f"Card clicked: {command.title}")
-        # Single click - switch to terminal view and execute
-        self.execute_command(command)
+        # Single click - just select the card (execution happens on Enter or double-click)
+        # Find the FlowBoxChild that contains this card and select it
+        card = self.cards.get(command.number)
+        if card:
+            # Find the FlowBoxChild that contains this card
+            for child in self.flow_box:
+                if child.get_child() == card:
+                    self.flow_box.select_child(child)
+                    child.grab_focus()
+                    break
     
     def _on_card_double_click(self, command: Command):
         """Handle card double-click."""
         logger.info(f"Executing command: {command.title}")
         self.execute_command(command)
+    
+    def _select_first_card(self):
+        """Select the first card in the flow box."""
+        first_child = self.flow_box.get_child_at_index(0)
+        if first_child:
+            self.flow_box.select_child(first_child)
+            # Don't grab focus here - let the window handle it after it's shown
+        return False  # Don't repeat (for GLib.idle_add)
+    
+    def _on_selection_changed(self, flow_box):
+        """Handle selection change in flow box."""
+        # This is called when selection changes, but we don't need to do anything here
+        # The Enter key handler will execute the selected command
+        pass
+    
+    def _on_key_pressed(self, controller, keyval, keycode, state):
+        """Handle keyboard input on flow box."""
+        # Check if Enter or Return key was pressed
+        if keyval == Gdk.KEY_Return or keyval == Gdk.KEY_KP_Enter:
+            selected = self.flow_box.get_selected_children()
+            if selected:
+                # Get the first selected child
+                child = selected[0]
+                # Get the card widget from the child
+                card = child.get_child()
+                if isinstance(card, CommandCard):
+                    logger.info(f"Executing command from Enter key: {card.command.title}")
+                    self.execute_command(card.command)
+                return True  # Event handled
+        # Handle arrow key navigation
+        elif keyval in (Gdk.KEY_Up, Gdk.KEY_Down, Gdk.KEY_Left, Gdk.KEY_Right, 
+                        Gdk.KEY_KP_Up, Gdk.KEY_KP_Down, Gdk.KEY_KP_Left, Gdk.KEY_KP_Right):
+            return self._handle_arrow_key(keyval)
+        
+        return False  # Event not handled
+    
+    def _handle_arrow_key(self, keyval):
+        """Handle arrow key navigation."""
+        selected = self.flow_box.get_selected_children()
+        current_child = selected[0] if selected else None
+        
+        if not current_child:
+            # No selection, select first child
+            first_child = self.flow_box.get_child_at_index(0)
+            if first_child:
+                self.flow_box.select_child(first_child)
+                self._scroll_to_child(first_child)
+            return True
+        
+        # Get current index
+        current_index = current_child.get_index()
+        max_children_per_line = self.flow_box.get_max_children_per_line()
+        
+        # Count total children by iterating
+        total_children = 0
+        child = self.flow_box.get_first_child()
+        while child is not None:
+            total_children += 1
+            child = child.get_next_sibling()
+        
+        # Determine next index based on arrow key
+        if keyval in (Gdk.KEY_Right, Gdk.KEY_KP_Right):
+            # Move right (next card)
+            next_index = current_index + 1
+            if next_index < total_children:
+                next_child = self.flow_box.get_child_at_index(next_index)
+                if next_child:
+                    self.flow_box.select_child(next_child)
+                    self._scroll_to_child(next_child)
+                    return True
+        
+        elif keyval in (Gdk.KEY_Left, Gdk.KEY_KP_Left):
+            # Move left (previous card)
+            next_index = current_index - 1
+            if next_index >= 0:
+                next_child = self.flow_box.get_child_at_index(next_index)
+                if next_child:
+                    self.flow_box.select_child(next_child)
+                    self._scroll_to_child(next_child)
+                    return True
+        
+        elif keyval in (Gdk.KEY_Down, Gdk.KEY_KP_Down):
+            # Move down (next row)
+            next_index = current_index + max_children_per_line
+            if next_index < total_children:
+                next_child = self.flow_box.get_child_at_index(next_index)
+                if next_child:
+                    self.flow_box.select_child(next_child)
+                    self._scroll_to_child(next_child)
+                    return True
+        
+        elif keyval in (Gdk.KEY_Up, Gdk.KEY_KP_Up):
+            # Move up (previous row)
+            next_index = current_index - max_children_per_line
+            if next_index >= 0:
+                next_child = self.flow_box.get_child_at_index(next_index)
+                if next_child:
+                    self.flow_box.select_child(next_child)
+                    self._scroll_to_child(next_child)
+                    return True
+        
+        return True  # Event handled (even if no movement)
+    
+    def _scroll_to_child(self, child):
+        """Scroll the scrolled window to make the child visible."""
+        # Get the allocation of the child
+        allocation = child.get_allocation()
+        if allocation.height == 0:
+            # Child not allocated yet, try again later
+            GLib.idle_add(lambda: self._scroll_to_child(child))
+            return
+        
+        # Get the scrolled window
+        scrolled = self.scrolled
+        
+        # Get the adjustment
+        vadjustment = scrolled.get_vadjustment()
+        if vadjustment:
+            # Calculate the position we need to scroll to
+            child_y = allocation.y
+            child_height = allocation.height
+            view_height = vadjustment.get_page_size()
+            
+            # Get current scroll position
+            current_value = vadjustment.get_value()
+            
+            # Check if child is visible
+            if child_y < current_value:
+                # Child is above visible area, scroll up
+                vadjustment.set_value(child_y)
+            elif child_y + child_height > current_value + view_height:
+                # Child is below visible area, scroll down
+                vadjustment.set_value(child_y + child_height - view_height)
     
     def execute_command(self, command: Command):
         """Execute a command."""

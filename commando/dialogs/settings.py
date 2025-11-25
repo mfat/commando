@@ -18,10 +18,11 @@ logger = get_logger(__name__)
 class SettingsDialog(Adw.PreferencesWindow):
     """Settings dialog."""
     
-    def __init__(self, **kwargs):
+    def __init__(self, parent=None, **kwargs):
         """Initialize settings dialog."""
         super().__init__(**kwargs)
         self.config = Config()
+        self.parent_window = parent  # Store reference to main window
         
         self.set_title("Settings")
         self.set_default_size(600, 700)
@@ -161,10 +162,8 @@ class SettingsDialog(Adw.PreferencesWindow):
         """Handle show terminal in main window change."""
         self.config.set("terminal.show_in_main_window", switch.get_active())
         # Notify the main window to update immediately
-        # Get the parent window from the dialog
-        parent = self.get_transient_for()
-        if parent and hasattr(parent, '_setup_bottom_terminal'):
-            parent._setup_bottom_terminal()
+        if self.parent_window and hasattr(self.parent_window, '_setup_bottom_terminal'):
+            self.parent_window._setup_bottom_terminal()
     
     def _on_theme_changed(self, combo):
         """Handle theme change."""
