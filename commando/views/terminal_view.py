@@ -382,16 +382,16 @@ class TerminalView(Adw.Bin):
         
         if (keyval == Gdk.KEY_e or keyval == Gdk.KEY_E) and \
            (state & ctrl_mask) and (state & shift_mask):
-            # Find the parent window and call the toggle method
-            # Pass self so the window knows which terminal triggered it
+            # Find the parent window and call the home button click handler
             parent = self.get_root()
-            logger.debug(f"Ctrl+Shift+E pressed in terminal, parent: {parent}, has toggle method: {hasattr(parent, '_toggle_cards_terminal') if parent else False}")
-            if parent and hasattr(parent, '_toggle_cards_terminal'):
-                parent._toggle_cards_terminal(from_terminal=self)
-                return True  # Event handled
+            logger.debug(f"Ctrl+Shift+E pressed in terminal, parent: {parent}")
+            if parent and hasattr(parent, '_on_home_clicked') and hasattr(parent, 'home_button'):
+                # Call the home button click handler to toggle views
+                parent._on_home_clicked(parent.home_button)
+                return True  # Event handled, prevent terminal from processing it
             else:
-                logger.warning(f"Could not find parent window or toggle method. Parent: {parent}")
-        return False  # Event not handled
+                logger.warning(f"Could not find parent window or home button handler. Parent: {parent}")
+        return False  # Event not handled, let terminal process it normally
     
     def focus_current_terminal(self):
         """Focus the current terminal tab."""
