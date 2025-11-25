@@ -121,6 +121,7 @@ class Config:
             "terminal.foreground_color": None,
             "terminal.palette": None,
             "terminal.external_terminal": None,
+            "terminal.show_in_main_window": False,
             "main_view.layout": "cards",
             "main_view.sort_by": "number",
             "main_view.sort_ascending": True,

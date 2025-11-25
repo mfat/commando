@@ -20,6 +20,7 @@ class CommandExecutor:
         """Initialize executor."""
         self.config = Config()
         self.terminal_view = None
+        self.bottom_terminal_view = None  # Bottom terminal in main window
     
     def set_terminal_view(self, terminal_view):
         """Set the terminal view for internal execution."""
@@ -50,15 +51,25 @@ class CommandExecutor:
     def _execute_internal(self, command: Command):
         """Execute command in internal terminal."""
         logger.info(f"Executing command in internal terminal: {command.command}")
-        if self.terminal_view:
-            # Switch to terminal view and execute
-            self.terminal_view.execute_command(command.command)
+        
+        # Prefer bottom terminal if it exists (it's only created when setting is enabled)
+        # Otherwise use the terminal view
+        target_terminal = None
+        if self.bottom_terminal_view:
+            target_terminal = self.bottom_terminal_view
+            logger.debug("Using bottom terminal for command execution")
+        elif self.terminal_view:
+            target_terminal = self.terminal_view
+            logger.debug("Using terminal view for command execution")
+        
+        if target_terminal:
+            # Execute in the selected terminal
+            target_terminal.execute_command(command.command, create_new_tab=True)
             # Focus the terminal after executing command
-            # Use GLib.idle_add to ensure focus happens after command is sent
             from gi.repository import GLib
-            GLib.idle_add(self.terminal_view.focus_current_terminal)
+            GLib.idle_add(target_terminal.focus_current_terminal)
         else:
-            logger.warning("Terminal view not available, falling back to external")
+            logger.warning("No terminal view available, falling back to external")
             self._execute_external(command)
     
     def _execute_external(self, command: Command):

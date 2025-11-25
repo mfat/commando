@@ -224,10 +224,18 @@ class MainView(Adw.Bin):
     def execute_command(self, command: Command):
         """Execute a command."""
         # Only switch to terminal view if command doesn't have no_terminal flag
+        # AND bottom terminal is not available
         if not getattr(command, 'no_terminal', False):
-            self._switch_to_terminal_view()
-            # Focus the terminal after switching
-            self._focus_terminal()
+            # Check if bottom terminal is available
+            # If it is, don't switch views - command will execute in bottom terminal
+            if not hasattr(self.executor, 'bottom_terminal_view') or not self.executor.bottom_terminal_view:
+                # No bottom terminal, switch to terminal view
+                self._switch_to_terminal_view()
+                # Focus the terminal after switching
+                self._focus_terminal()
+            else:
+                # Bottom terminal is available, focus it instead
+                self._focus_bottom_terminal()
         # Execute the command
         self.executor.execute(command)
     
@@ -244,6 +252,12 @@ class MainView(Adw.Bin):
                     GLib.idle_add(terminal_view.focus_current_terminal)
                 break
             parent = parent.get_parent()
+    
+    def _focus_bottom_terminal(self):
+        """Focus the bottom terminal."""
+        if hasattr(self.executor, 'bottom_terminal_view') and self.executor.bottom_terminal_view:
+            # Focus the bottom terminal
+            GLib.idle_add(self.executor.bottom_terminal_view.focus_current_terminal)
     
     def _switch_to_terminal_view(self):
         """Switch to the terminal view."""
