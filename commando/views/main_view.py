@@ -527,42 +527,42 @@ class MainView(Adw.Bin):
     def execute_command(self, command: Command):
         """Execute a command."""
         # Only switch to terminal view if command doesn't have no_terminal flag
-        # AND embedded terminal is not available
+        # AND terminal mode 2 is not available
         if not getattr(command, 'no_terminal', False):
-            # Check if embedded terminal is available
-            # If it is, don't switch views - command will execute in embedded terminal
-            if not hasattr(self.executor, 'embedded_terminal_view') or not self.executor.embedded_terminal_view:
-                # No embedded terminal, switch to standalone terminal view
+            # Check if terminal mode 2 is available
+            # If it is, don't switch views - command will execute in terminal mode 2
+            if not hasattr(self.executor, 'terminal_mode_2_view') or not self.executor.terminal_mode_2_view:
+                # No terminal mode 2, switch to terminal mode 1 view
                 self._switch_to_terminal_view()
                 # Focus the terminal after switching
                 self._focus_terminal()
             else:
-                # Embedded terminal is available, focus it instead
-                self._focus_embedded_terminal()
+                # Terminal mode 2 is available, focus it instead
+                self._focus_terminal_mode_2()
         # Execute the command
         self.executor.execute(command)
     
     def _focus_terminal(self):
-        """Focus the standalone terminal view."""
-        # Find the parent window and get standalone terminal view
+        """Focus terminal mode 1 view."""
+        # Find the parent window and get terminal mode 1 view
         parent = self.get_parent()
         while parent is not None:
             if isinstance(parent, Adw.ViewStack):
-                # Get the standalone terminal view from the stack
-                standalone_terminal_view = parent.get_child_by_name("terminal")
-                if standalone_terminal_view and hasattr(standalone_terminal_view, 'focus_current_terminal'):
+                # Get terminal mode 1 view from the stack
+                terminal_mode_1_view = parent.get_child_by_name("terminal")
+                if terminal_mode_1_view and hasattr(terminal_mode_1_view, 'focus_current_terminal'):
                     # Use GLib.idle_add to ensure focus happens after view switch
-                    GLib.idle_add(standalone_terminal_view.focus_current_terminal)
+                    GLib.idle_add(terminal_mode_1_view.focus_current_terminal)
                 break
             parent = parent.get_parent()
     
-    def _focus_embedded_terminal(self):
-        """Focus the embedded terminal (bottom terminal in main window)."""
-        if hasattr(self.executor, 'embedded_terminal_view') and self.executor.embedded_terminal_view:
-            # Focus the embedded terminal - use timeout to ensure it's ready
+    def _focus_terminal_mode_2(self):
+        """Focus terminal mode 2 (bottom terminal in main window)."""
+        if hasattr(self.executor, 'terminal_mode_2_view') and self.executor.terminal_mode_2_view:
+            # Focus terminal mode 2 - use timeout to ensure it's ready
             def focus_terminal():
-                if self.executor.embedded_terminal_view:
-                    self.executor.embedded_terminal_view.focus_current_terminal()
+                if self.executor.terminal_mode_2_view:
+                    self.executor.terminal_mode_2_view.focus_current_terminal()
                 return False  # Don't repeat
             
             # Try multiple times with increasing delays to ensure terminal is ready
@@ -571,7 +571,7 @@ class MainView(Adw.Bin):
             GLib.timeout_add(500, focus_terminal)
     
     def _switch_to_terminal_view(self):
-        """Switch to the standalone terminal view."""
+        """Switch to terminal mode 1 view."""
         # Find the parent Adw.ViewStack
         parent = self.get_parent()
         while parent is not None:

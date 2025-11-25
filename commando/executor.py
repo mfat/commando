@@ -19,12 +19,12 @@ class CommandExecutor:
     def __init__(self):
         """Initialize executor."""
         self.config = Config()
-        self.standalone_terminal_view = None  # Standalone terminal view in ViewStack
-        self.embedded_terminal_view = None  # Embedded terminal at bottom of main window
+        self.terminal_mode_1_view = None  # Terminal mode 1: terminal view in ViewStack
+        self.terminal_mode_2_view = None  # Terminal mode 2: terminal at bottom of main window
     
     def set_terminal_view(self, terminal_view):
-        """Set the standalone terminal view for internal execution."""
-        self.standalone_terminal_view = terminal_view
+        """Set the terminal mode 1 view for internal execution."""
+        self.terminal_mode_1_view = terminal_view
     
     def execute(self, command: Command, use_external: bool = None):
         """
@@ -52,15 +52,15 @@ class CommandExecutor:
         """Execute command in internal terminal."""
         logger.info(f"Executing command in internal terminal: {command.command}")
         
-        # Prefer embedded terminal if it exists (it's only created when setting is enabled)
-        # Otherwise use the standalone terminal view
+        # Prefer terminal mode 2 if it exists (it's only created when setting is enabled)
+        # Otherwise use terminal mode 1
         target_terminal = None
-        if self.embedded_terminal_view:
-            target_terminal = self.embedded_terminal_view
-            logger.debug("Using embedded terminal for command execution")
-        elif self.standalone_terminal_view:
-            target_terminal = self.standalone_terminal_view
-            logger.debug("Using standalone terminal view for command execution")
+        if self.terminal_mode_2_view:
+            target_terminal = self.terminal_mode_2_view
+            logger.debug("Using terminal mode 2 for command execution")
+        elif self.terminal_mode_1_view:
+            target_terminal = self.terminal_mode_1_view
+            logger.debug("Using terminal mode 1 for command execution")
         
         if target_terminal:
             # Execute in the selected terminal
