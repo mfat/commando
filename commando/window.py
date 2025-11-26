@@ -33,6 +33,9 @@ class CommandoWindow(Adw.ApplicationWindow):
         # Connect close request to ensure proper cleanup and quit
         self.connect("close-request", self._on_close_request)
         
+        # Connect to window focus events to handle focus properly when returning from external apps
+        self.connect("notify::has-focus", self._on_window_focus_changed)
+        
         # Create header bar
         self._create_header_bar()
         
@@ -273,8 +276,8 @@ class CommandoWindow(Adw.ApplicationWindow):
         
         self.add_controller(shortcut_controller)
         
-        # Add a window-level keyboard controller for arrow keys and Enter
-        # This ensures keyboard navigation works regardless of which view has focus
+        # Add a minimal window-level keyboard controller to consume unhandled events
+        # This prevents error tones when the window regains focus but no widget has focus yet
         from gi.repository import Gdk
         key_controller = Gtk.EventControllerKey()
         key_controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
@@ -282,28 +285,41 @@ class CommandoWindow(Adw.ApplicationWindow):
         self.add_controller(key_controller)
     
     def _on_window_key_pressed(self, controller, keyval, keycode, state):
-        """Handle keyboard input at window level - route to appropriate view."""
+        """Handle keyboard input at window level - only consume events to prevent error tones."""
         from gi.repository import Gdk
         
-        # Only handle keys when main view is visible
+        # Only handle when main view is visible and we're trying to prevent error tones
         if self.stack.get_visible_child() != self.main_view:
             return False
         
-        # Check if it's an arrow key or Enter key
+        # If MainView or FlowBox has focus, let them handle it
+        if hasattr(self.main_view, 'flow_box') and self.main_view.flow_box.has_focus():
+            return False
+        if self.main_view.has_focus():
+            return False
+        if hasattr(self.main_view, 'search_entry') and self.main_view.search_entry.has_focus():
+            return False
+        
+        # Only handle arrow keys and Enter to prevent error tones
+        # Forward to MainView's handler if it can handle it
         is_arrow = keyval in (Gdk.KEY_Up, Gdk.KEY_Down, Gdk.KEY_Left, Gdk.KEY_Right,
                               Gdk.KEY_KP_Up, Gdk.KEY_KP_Down, Gdk.KEY_KP_Left, Gdk.KEY_KP_Right)
         is_enter = keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter)
         
         if is_arrow or is_enter:
-            # Forward to MainView's keyboard handler
+            # Try to forward to MainView's handler
             if hasattr(self.main_view, '_on_key_pressed'):
-                # Create a dummy controller for the call
                 result = self.main_view._on_key_pressed(controller, keyval, keycode, state)
                 if result:
-                    logger.debug(f"Window-level keyboard handler forwarded key {keyval} to MainView, handled={result}")
-                return result
+                    return True
+            # If MainView can't handle it, consume it anyway to prevent error tone
+            return True
         
+        # For other keys, don't consume them - let them pass through or be handled normally
         return False
+    
+    # Removed _on_window_key_pressed - MainView's keyboard controller handles all keyboard events
+    # This prevents unhandled events from causing error tones
     
     def _toggle_search(self, *args):
         """Toggle search bar visibility and focus it when shown."""
@@ -570,4 +586,35 @@ class CommandoWindow(Adw.ApplicationWindow):
             logger.info("Window cleanup complete")
         except Exception as e:
             logger.error(f"Error during window cleanup: {e}", exc_info=True)
+    
+    def _on_window_focus_changed(self, window, param):
+        """Handle window focus changes - ensure proper focus when returning from external apps."""
+        if window.get_has_focus():
+            # Window regained focus - set focus immediately to prevent unhandled keyboard events
+            current_view = self.stack.get_visible_child_name()
+            
+            if current_view == "main":
+                # In main view - ensure MainView has focus immediately
+                if hasattr(self, 'main_view'):
+                    # Remove focus from search entry if it's hidden and has focus
+                    if hasattr(self.main_view, 'search_revealer') and not self.main_view.search_revealer.get_reveal_child():
+                        if hasattr(self.main_view, 'search_entry') and self.main_view.search_entry.has_focus():
+                            self.main_view.search_entry.set_focusable(False)
+                            self.main_view.search_entry.set_can_focus(False)
+                    
+                    # Give focus to MainView immediately
+                    self.main_view.grab_focus()
+                    logger.debug("Gave focus to MainView after window regained focus")
+                    
+                    # Also ensure it stays focused
+                    def ensure_focus():
+                        if not self.main_view.has_focus():
+                            self.main_view.grab_focus()
+                        return False
+                    GLib.idle_add(ensure_focus)
+            elif current_view == "terminal":
+                # In terminal view - ensure terminal has focus
+                if hasattr(self, 'terminal_view'):
+                    self.terminal_view.focus_current_terminal()
+                    logger.debug("Gave focus to terminal after window regained focus")
 

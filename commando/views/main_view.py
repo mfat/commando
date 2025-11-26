@@ -103,6 +103,7 @@ class MainView(Adw.Bin):
         self.search_entry.set_placeholder_text("Search commands...")
         self.search_entry.set_hexpand(True)
         self.search_entry.connect("search-changed", self._on_search_changed)
+        self.search_entry.connect("activate", self._on_search_activate)
         
         # Wrap search entry in a revealer for smooth animation
         self.search_revealer = Gtk.Revealer()
@@ -198,21 +199,58 @@ class MainView(Adw.Bin):
         """Handle search text changes."""
         query = entry.get_text().lower()
         if not query:
-            # Show all cards
-            for card in self.cards.values():
-                card.set_visible(True)
+            # Show all cards - iterate through FlowBox children to show both card and wrapper
+            for child in self.flow_box:
+                card = child.get_child()
+                if isinstance(card, CommandCard):
+                    child.set_visible(True)
+                    card.set_visible(True)
+            # Select first card when search is cleared
+            first_child = self.flow_box.get_first_child()
+            if first_child:
+                self.flow_box.select_child(first_child)
         else:
-            # Filter cards
-            for number, card in self.cards.items():
-                command = card.command
-                match = (
-                    query in command.title.lower() or
-                    query in command.command.lower() or
-                    query in command.tag.lower() or
-                    query in command.category.lower() or
-                    query in str(command.number)
-                )
-                card.set_visible(match)
+            # Filter cards - hide/show both FlowBoxChild and card
+            first_visible_child = None
+            for child in self.flow_box:
+                card = child.get_child()
+                if isinstance(card, CommandCard):
+                    command = card.command
+                    # Handle None values for tag and category
+                    tag = command.tag.lower() if command.tag else ""
+                    category = command.category.lower() if command.category else ""
+                    match = (
+                        query in command.title.lower() or
+                        query in command.command.lower() or
+                        query in tag or
+                        query in category or
+                        query in str(command.number)
+                    )
+                    # Set visibility on both the FlowBoxChild wrapper and the card itself
+                    child.set_visible(match)
+                    card.set_visible(match)
+                    # Track first visible card for selection
+                    if match and first_visible_child is None:
+                        first_visible_child = child
+            
+            # Select first visible card after filtering
+            if first_visible_child:
+                self.flow_box.select_child(first_visible_child)
+    
+    def _on_search_activate(self, entry):
+        """Handle Enter key press in search entry - execute first matching command."""
+        # Get the first visible card and execute it
+        for child in self.flow_box:
+            if child.get_visible():
+                card = child.get_child()
+                if isinstance(card, CommandCard):
+                    logger.info(f"Executing command from search Enter: {card.command.title}")
+                    self.execute_command(card.command)
+                    # Clear search and hide search bar
+                    entry.set_text("")
+                    if hasattr(self, 'search_revealer'):
+                        self.search_revealer.set_reveal_child(False)
+                    break
     
     def _on_sort_changed(self, combo):
         """Handle sort change."""
