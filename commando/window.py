@@ -590,9 +590,10 @@ class CommandoWindow(Adw.ApplicationWindow):
     
     def _on_about(self, action, param):
         """Show about dialog."""
-        from commando.dialogs.about import AboutDialog
-        dialog = AboutDialog(parent=self)
-        dialog.present()
+        from commando.dialogs.about import create_about_dialog
+
+        dialog = create_about_dialog()
+        dialog.present(self)
     
     def _on_close_request(self, window):
         """Handle window close request."""

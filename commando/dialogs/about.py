@@ -11,25 +11,29 @@ from gi.repository import Gtk, Adw
 
 from commando import __version__
 
-class AboutDialog(Adw.AboutWindow):
-    """About dialog."""
-    
-    def __init__(self, **kwargs):
-        """Initialize about dialog."""
-        super().__init__(**kwargs)
-        
-        self.set_application_name("Commando")
-        self.set_version(__version__)
-        self.set_application_icon("com.github.commando")
-        self.set_developer_name("Commando Developers")
-        self.set_license_type(Gtk.License.GPL_3_0)
-        self.set_website("https://github.com/commando/commando")
-        self.set_issue_url("https://github.com/commando/commando/issues")
-        
-        self.set_copyright("© 2024 Commando Developers")
-        self.set_developers(["Commando Team"])
-        
-        self.set_comments(
-            "A GNOME application for saving and running user-defined Linux commands."
-        )
+
+def create_about_dialog(**kwargs) -> Adw.AboutDialog:
+    """
+    Build and configure the about dialog without subclassing final Adw
+    widgets. Adw.AboutDialog replaces the deprecated Adw.AboutWindow in
+    libadwaita ≥ 1.5.
+    """
+    dialog = Adw.AboutDialog(**kwargs)
+
+    dialog.set_application_name("Commando")
+    dialog.set_version(__version__)
+    dialog.set_application_icon("com.github.commando")
+    dialog.set_developer_name("Commando Developers")
+    dialog.set_license_type(Gtk.License.GPL_3_0)
+    dialog.set_website("https://github.com/commando/commando")
+    dialog.set_issue_url("https://github.com/commando/commando/issues")
+
+    dialog.set_copyright("© 2024 Commando Developers")
+    dialog.set_developers(["Commando Team"])
+
+    dialog.set_comments(
+        "A GNOME application for saving and running user-defined Linux commands."
+    )
+
+    return dialog
 
