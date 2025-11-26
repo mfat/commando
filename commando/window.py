@@ -130,10 +130,11 @@ class CommandoWindow(Adw.ApplicationWindow):
         header.pack_end(menu)
         
         # Theme toggle
-        theme_toggle = Gtk.ToggleButton()
-        theme_toggle.set_icon_name("dark-mode-symbolic")
-        theme_toggle.connect("toggled", self._on_theme_toggled)
-        header.pack_end(theme_toggle)
+        self.theme_toggle = Gtk.ToggleButton()
+        self.theme_toggle.set_icon_name("night-light-symbolic")
+        self.theme_toggle.set_tooltip_text("Theme")
+        self.theme_toggle.connect("toggled", self._on_theme_toggled)
+        header.pack_end(self.theme_toggle)
         
         # View switcher will be added here
     
@@ -198,6 +199,29 @@ class CommandoWindow(Adw.ApplicationWindow):
             style_manager.set_color_scheme(Adw.ColorScheme.FORCE_DARK)
         else:
             style_manager.set_color_scheme(Adw.ColorScheme.PREFER_DARK)
+        
+        # Update theme icon after applying theme
+        if hasattr(self, 'theme_toggle'):
+            self._update_theme_icon()
+    
+    def _update_theme_icon(self):
+        """Update theme toggle icon based on current theme."""
+        if not hasattr(self, 'theme_toggle'):
+            return
+        
+        # Use night-light-symbolic for all modes
+        self.theme_toggle.set_icon_name("night-light-symbolic")
+        
+        # Update tooltip based on current theme
+        style_manager = Adw.StyleManager.get_default()
+        current = style_manager.get_color_scheme()
+        
+        if current == Adw.ColorScheme.FORCE_LIGHT:
+            self.theme_toggle.set_tooltip_text("Switch to Dark Mode")
+        elif current == Adw.ColorScheme.FORCE_DARK:
+            self.theme_toggle.set_tooltip_text("Switch to Light Mode")
+        else:
+            self.theme_toggle.set_tooltip_text("Switch to Light Mode")
     
     def _on_theme_toggled(self, button):
         """Handle theme toggle."""
@@ -213,6 +237,9 @@ class CommandoWindow(Adw.ApplicationWindow):
         else:
             style_manager.set_color_scheme(Adw.ColorScheme.FORCE_LIGHT)
             self.config.set("theme", "light")
+        
+        # Update icon after theme change
+        self._update_theme_icon()
     
     def _setup_menu_actions(self):
         """Set up menu actions."""
