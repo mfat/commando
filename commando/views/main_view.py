@@ -30,6 +30,8 @@ class MainView(Adw.Bin):
         self.executor = CommandExecutor()
         self.config = Config()
         self.cards: dict[int, CommandCard] = {}
+        self.number_input = ""  # Track number input for card selection
+        self.number_input_timeout_id = None  # Timeout ID for resetting number input
         
         # Main scrolled window
         self.scrolled = Gtk.ScrolledWindow()
@@ -73,10 +75,11 @@ class MainView(Adw.Bin):
         # Add keyboard controller to MainView so it receives events even if FlowBox doesn't have focus
         # This ensures keyboard navigation works even when FlowBox focus fails
         # Use CAPTURE phase to intercept events before they reach child widgets
-        key_controller = Gtk.EventControllerKey()
-        key_controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
-        key_controller.connect("key-pressed", self._on_key_pressed)
-        self.add_controller(key_controller)
+        # Store reference to controller so we can verify it's active
+        self.key_controller = Gtk.EventControllerKey()
+        self.key_controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        self.key_controller.connect("key-pressed", self._on_key_pressed)
+        self.add_controller(self.key_controller)
         
         self.scrolled.set_child(self.flow_box)
         
@@ -89,6 +92,19 @@ class MainView(Adw.Bin):
         # But we'll try to pass focus to FlowBox when possible
         self.set_focusable(True)
         self.set_can_focus(True)
+        
+        # Reset number input when view becomes visible
+        self.connect("notify::visible", self._on_visibility_changed)
+    
+    def _on_visibility_changed(self, widget, param):
+        """Handle visibility changes - reset number input when view becomes visible."""
+        if self.get_visible():
+            self._reset_number_input()
+            logger.debug("MainView became visible, reset number input")
+            # Ensure keyboard controller is active by ensuring MainView can receive focus
+            if not self.has_focus():
+                # Try to grab focus to ensure keyboard events are received
+                GLib.idle_add(self.grab_focus)
     
     def _create_toolbar(self):
         """Create the toolbar with search and controls."""
@@ -397,8 +413,12 @@ class MainView(Adw.Bin):
         """Handle keyboard input on main view."""
         from gi.repository import Gdk
         
+        # Log ALL key presses at the very start to debug
+        logger.debug(f"_on_key_pressed START: keyval={keyval}, flow_box_visible={self.flow_box.get_visible()}, cards_count={len(self.cards)}")
+        
         # Only handle keys when main view is visible and has cards
         if not self.flow_box.get_visible() or len(self.cards) == 0:
+            logger.debug("Skipping: flow_box not visible or no cards")
             return False
         
         # Check if we're actually in the main view (not in terminal or web view)
@@ -412,7 +432,15 @@ class MainView(Adw.Bin):
                 break
             parent = parent.get_parent()
         
-        logger.debug(f"MainView key pressed: keyval={keyval}, main_view_has_focus={self.has_focus()}, flow_box_has_focus={self.flow_box.has_focus()}")
+        logger.debug(f"MainView key pressed: keyval={keyval}, main_view_has_focus={self.has_focus()}, flow_box_has_focus={self.flow_box.has_focus()}, number_input='{self.number_input}'")
+        
+        # Handle number keys for card selection (check this first, before other keys)
+        if self._is_number_key(keyval):
+            number = self._get_number_from_keyval(keyval)
+            if number is not None:
+                logger.debug(f"Number key detected: {number}, current input: '{self.number_input}'")
+                self._handle_number_key(number)
+                return True
         
         # Check if Enter or Return key was pressed
         if keyval == Gdk.KEY_Return or keyval == Gdk.KEY_KP_Enter:
@@ -439,7 +467,17 @@ class MainView(Adw.Bin):
             logger.debug(f"Arrow key pressed: {keyval}, handling navigation")
             result = self._handle_arrow_key(keyval)
             logger.debug(f"Arrow key handling result: {result}")
+            # Reset number input when arrow keys are pressed
+            self._reset_number_input()
             return result
+        
+        # Reset number input for any other key (except modifiers)
+        else:
+            # Don't reset on modifier keys
+            from gi.repository import Gdk
+            if keyval not in (Gdk.KEY_Shift_L, Gdk.KEY_Shift_R, Gdk.KEY_Control_L, Gdk.KEY_Control_R,
+                             Gdk.KEY_Alt_L, Gdk.KEY_Alt_R, Gdk.KEY_Meta_L, Gdk.KEY_Meta_R):
+                self._reset_number_input()
         
         return False  # Event not handled
     
@@ -513,6 +551,80 @@ class MainView(Adw.Bin):
                     return True
         
         return True  # Event handled (even if no movement)
+    
+    def _is_number_key(self, keyval):
+        """Check if keyval is a number key (0-9)."""
+        from gi.repository import Gdk
+        number_keys = (
+            Gdk.KEY_0, Gdk.KEY_1, Gdk.KEY_2, Gdk.KEY_3, Gdk.KEY_4,
+            Gdk.KEY_5, Gdk.KEY_6, Gdk.KEY_7, Gdk.KEY_8, Gdk.KEY_9,
+            Gdk.KEY_KP_0, Gdk.KEY_KP_1, Gdk.KEY_KP_2, Gdk.KEY_KP_3, Gdk.KEY_KP_4,
+            Gdk.KEY_KP_5, Gdk.KEY_KP_6, Gdk.KEY_KP_7, Gdk.KEY_KP_8, Gdk.KEY_KP_9
+        )
+        return keyval in number_keys
+    
+    def _get_number_from_keyval(self, keyval):
+        """Get the numeric value from a keyval."""
+        from gi.repository import Gdk
+        # Regular number keys
+        if Gdk.KEY_0 <= keyval <= Gdk.KEY_9:
+            return keyval - Gdk.KEY_0
+        # Keypad number keys
+        elif Gdk.KEY_KP_0 <= keyval <= Gdk.KEY_KP_9:
+            return keyval - Gdk.KEY_KP_0
+        return None
+    
+    def _reset_number_input(self):
+        """Reset the number input buffer."""
+        if self.number_input_timeout_id:
+            GLib.source_remove(self.number_input_timeout_id)
+            self.number_input_timeout_id = None
+        self.number_input = ""
+    
+    def _handle_number_key(self, number):
+        """Handle number key press for card selection."""
+        # Cancel any existing timeout
+        if self.number_input_timeout_id:
+            GLib.source_remove(self.number_input_timeout_id)
+            self.number_input_timeout_id = None
+        
+        # Append the number to the input string
+        self.number_input += str(number)
+        logger.debug(f"Number input updated to: '{self.number_input}'")
+        
+        # Try to find and select the card with this number
+        try:
+            card_number = int(self.number_input)
+            logger.debug(f"Looking for card #{card_number}, available cards: {list(self.cards.keys())}")
+            card = self.cards.get(card_number)
+            if card:
+                logger.debug(f"Found card #{card_number}: {card.command.title}")
+                # Find the FlowBoxChild that contains this card
+                for child in self.flow_box:
+                    if child.get_child() == card:
+                        # Make sure the card is visible
+                        if child.get_visible() and card.get_visible():
+                            logger.debug(f"Selecting card #{card_number} via number input")
+                            self.flow_box.select_child(child)
+                            self._scroll_to_child(child)
+                            # Reset input after successful selection
+                            self._reset_number_input()
+                            return
+                        else:
+                            logger.debug(f"Card #{card_number} found but not visible")
+            else:
+                logger.debug(f"Card #{card_number} not found in cards dictionary")
+        except ValueError as e:
+            logger.debug(f"Error converting '{self.number_input}' to int: {e}")
+        
+        # Set a timeout to reset the number input if no valid card is found
+        # This allows users to type multi-digit numbers
+        def reset_input():
+            logger.debug(f"Resetting number input after timeout")
+            self._reset_number_input()
+            return False
+        
+        self.number_input_timeout_id = GLib.timeout_add(1000, reset_input)  # Reset after 1 second
     
     def _scroll_to_child(self, child):
         """Scroll the scrolled window to make the child visible."""

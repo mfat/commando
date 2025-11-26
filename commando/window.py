@@ -319,12 +319,28 @@ class CommandoWindow(Adw.ApplicationWindow):
         if self.stack.get_visible_child() != self.main_view:
             return False
         
-        # If MainView or FlowBox has focus, let them handle it
+        # If MainView or FlowBox has focus, let them handle it - don't intercept at all
         if hasattr(self.main_view, 'flow_box') and self.main_view.flow_box.has_focus():
             return False
         if self.main_view.has_focus():
             return False
         if hasattr(self.main_view, 'search_entry') and self.main_view.search_entry.has_focus():
+            return False
+        
+        # Check if it's a number key - forward to MainView immediately
+        number_keys = (
+            Gdk.KEY_0, Gdk.KEY_1, Gdk.KEY_2, Gdk.KEY_3, Gdk.KEY_4,
+            Gdk.KEY_5, Gdk.KEY_6, Gdk.KEY_7, Gdk.KEY_8, Gdk.KEY_9,
+            Gdk.KEY_KP_0, Gdk.KEY_KP_1, Gdk.KEY_KP_2, Gdk.KEY_KP_3, Gdk.KEY_KP_4,
+            Gdk.KEY_KP_5, Gdk.KEY_KP_6, Gdk.KEY_KP_7, Gdk.KEY_KP_8, Gdk.KEY_KP_9
+        )
+        if keyval in number_keys:
+            # Forward number keys to MainView's handler
+            if hasattr(self.main_view, '_on_key_pressed'):
+                result = self.main_view._on_key_pressed(controller, keyval, keycode, state)
+                if result:
+                    return True
+            # If MainView can't handle it, don't consume it - let it pass through
             return False
         
         # Only handle arrow keys and Enter to prevent error tones
@@ -380,6 +396,10 @@ class CommandoWindow(Adw.ApplicationWindow):
                 logger.debug("Removed focus from terminal view")
             
             self.stack.set_visible_child_name("main")
+            # Reset number input when switching to main view
+            if hasattr(self.main_view, '_reset_number_input'):
+                self.main_view._reset_number_input()
+            
             # The _on_stack_visible_child_changed handler will focus MainView
             # But we also ensure focus here with multiple retries
             def focus_main_view():
@@ -536,6 +556,9 @@ class CommandoWindow(Adw.ApplicationWindow):
         
         visible_child = stack.get_visible_child()
         if visible_child == self.main_view:
+            # Reset number input when returning to main view
+            if hasattr(self.main_view, '_reset_number_input'):
+                self.main_view._reset_number_input()
             # Main view is now visible, remove focus from terminal if it has it
             if hasattr(self, 'terminal_view') and self.terminal_view.has_focus():
                 # Remove focus from terminal by focusing the window itself temporarily
