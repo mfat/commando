@@ -3,12 +3,12 @@ Default commands that are created on first run.
 """
 
 from commando.models.command import Command
-from typing import List, Set
+from typing import List, Set, Optional
+from commando.platform import Distribution, get_package_manager, detect_distribution
 
-
-def get_default_commands() -> List[Command]:
+def get_default_commands(distribution: Optional[Distribution] = None) -> List[Command]:
     """Get the list of default commands to create on first run."""
-    return [
+    commands = [
         # System Information
         Command(
             number=1,
@@ -46,44 +46,132 @@ def get_default_commands() -> List[Command]:
             category="System",
             description="Show top processes by memory usage"
         ),
-        
-        # Package Management
-        Command(
-            number=5,
-            title="Update Packages (Fedora)",
-            command="sudo dnf update",
-            icon="software-update-available-symbolic",
-            color="green",
-            category="Packages",
-            description="Update all installed packages (Fedora/RHEL)"
-        ),
-        Command(
-            number=6,
-            title="Update Packages (Debian/Ubuntu)",
-            command="sudo apt update && sudo apt upgrade",
-            icon="software-update-available-symbolic",
-            color="green",
-            category="Packages",
-            description="Update all installed packages (Debian/Ubuntu)"
-        ),
-        Command(
-            number=7,
-            title="Update Packages (Arch)",
-            command="sudo pacman -Syu",
-            icon="software-update-available-symbolic",
-            color="green",
-            category="Packages",
-            description="Update all installed packages (Arch Linux)"
-        ),
-        Command(
-            number=8,
-            title="Search Package (Fedora)",
-            command="dnf search ",
-            icon="system-search-symbolic",
-            color="green",
-            category="Packages",
-            description="Search for packages (add search term after command)"
-        ),
+    ]
+    
+    # Add distribution-specific package management commands
+    if distribution is None:
+        distribution = detect_distribution()
+    
+    package_manager = get_package_manager(distribution)
+    
+    if package_manager == "dnf" or package_manager == "yum":
+        # Fedora/RHEL/CentOS
+        commands.extend([
+            Command(
+                number=5,
+                title="Update Packages",
+                command=f"sudo {package_manager} update",
+                icon="software-update-available-symbolic",
+                color="green",
+                category="Packages",
+                description=f"Update all installed packages ({distribution.value.title()})"
+            ),
+            Command(
+                number=8,
+                title="Search Package",
+                command=f"{package_manager} search ",
+                icon="system-search-symbolic",
+                color="green",
+                category="Packages",
+                description="Search for packages (add search term after command)",
+                run_mode=2
+            ),
+        ])
+    elif package_manager == "apt":
+        # Debian/Ubuntu
+        commands.extend([
+            Command(
+                number=5,
+                title="Update Packages",
+                command="sudo apt update && sudo apt upgrade",
+                icon="software-update-available-symbolic",
+                color="green",
+                category="Packages",
+                description=f"Update all installed packages ({distribution.value.title()})"
+            ),
+            Command(
+                number=8,
+                title="Search Package",
+                command="apt search ",
+                icon="system-search-symbolic",
+                color="green",
+                category="Packages",
+                description="Search for packages (add search term after command)",
+                run_mode=2
+            ),
+        ])
+    elif package_manager == "pacman":
+        # Arch Linux
+        commands.extend([
+            Command(
+                number=5,
+                title="Update Packages",
+                command="sudo pacman -Syu",
+                icon="software-update-available-symbolic",
+                color="green",
+                category="Packages",
+                description="Update all installed packages (Arch Linux)"
+            ),
+            Command(
+                number=8,
+                title="Search Package",
+                command="pacman -Ss ",
+                icon="system-search-symbolic",
+                color="green",
+                category="Packages",
+                description="Search for packages (add search term after command)",
+                run_mode=2
+            ),
+        ])
+    elif package_manager == "zypper":
+        # openSUSE/SUSE
+        commands.extend([
+            Command(
+                number=5,
+                title="Update Packages",
+                command="sudo zypper update",
+                icon="software-update-available-symbolic",
+                color="green",
+                category="Packages",
+                description=f"Update all installed packages ({distribution.value.title()})"
+            ),
+            Command(
+                number=8,
+                title="Search Package",
+                command="zypper search ",
+                icon="system-search-symbolic",
+                color="green",
+                category="Packages",
+                description="Search for packages (add search term after command)",
+                run_mode=2
+            ),
+        ])
+    else:
+        # Unknown distribution - add generic package management commands
+        commands.extend([
+            Command(
+                number=5,
+                title="Update Packages",
+                command="sudo ",
+                icon="software-update-available-symbolic",
+                color="green",
+                category="Packages",
+                description="Update all installed packages (configure for your distribution)"
+            ),
+            Command(
+                number=8,
+                title="Search Package",
+                command="",
+                icon="system-search-symbolic",
+                color="green",
+                category="Packages",
+                description="Search for packages (configure for your distribution)",
+                run_mode=2
+            ),
+        ])
+    
+    # Continue with rest of commands (File Operations, Network, etc.)
+    commands.extend([
         
         # File Operations
         Command(
@@ -93,7 +181,8 @@ def get_default_commands() -> List[Command]:
             icon="system-file-manager-symbolic",
             color="yellow",
             category="Files",
-            description="Find files by name (add pattern after command)"
+            description="Find files by name (add pattern after command)",
+            run_mode=2
         ),
         Command(
             number=10,
@@ -102,7 +191,8 @@ def get_default_commands() -> List[Command]:
             icon="edit-find-symbolic",
             color="yellow",
             category="Files",
-            description="Search for text in files (add search term after command)"
+            description="Search for text in files (add search term after command)",
+            run_mode=2
         ),
         Command(
             number=11,
@@ -140,7 +230,8 @@ def get_default_commands() -> List[Command]:
             icon="network-workgroup-symbolic",
             color="purple",
             category="Network",
-            description="Ping a host (add hostname after command)"
+            description="Ping a host (add hostname after command)",
+            run_mode=2
         ),
         Command(
             number=15,
@@ -169,7 +260,8 @@ def get_default_commands() -> List[Command]:
             icon="preferences-system-symbolic",
             color="orange",
             category="Services",
-            description="Check service status (add service name after command)"
+            description="Check service status (add service name after command)",
+            run_mode=2
         ),
         Command(
             number=18,
@@ -187,7 +279,8 @@ def get_default_commands() -> List[Command]:
             icon="text-editor-symbolic",
             color="orange",
             category="Services",
-            description="View logs for a service (add service name after command)"
+            description="View logs for a service (add service name after command)",
+            run_mode=2
         ),
         Command(
             number=20,
@@ -313,7 +406,9 @@ def get_default_commands() -> List[Command]:
             category="Utilities",
             description="Show recent command history"
         ),
-    ]
+    ])
+    
+    return commands
 
 
 def get_default_command_numbers() -> Set[int]:

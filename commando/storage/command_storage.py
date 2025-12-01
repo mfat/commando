@@ -9,6 +9,7 @@ from typing import List, Optional
 from commando.models.command import Command
 from commando.config import Config
 from commando.logger import get_logger
+from commando.platform import detect_distribution
 from commando.storage.default_commands import get_default_commands, get_default_command_numbers, is_default_command
 
 logger = get_logger(__name__)
@@ -59,7 +60,10 @@ class CommandStorage:
         """Initialize default commands on first run."""
         if not self._commands:
             logger.info("Initializing default commands")
-            default_commands = get_default_commands()
+            # Detect distribution and get platform-specific defaults
+            distribution = detect_distribution()
+            logger.info(f"Detected distribution: {distribution.value}")
+            default_commands = get_default_commands(distribution)
             self._commands = default_commands
             self._save()
             logger.info(f"Initialized {len(default_commands)} default commands")
@@ -149,7 +153,10 @@ class CommandStorage:
             Number of new default commands added
         """
         logger.info("Adding default commands")
-        default_commands = get_default_commands()
+        # Detect distribution and get platform-specific defaults
+        distribution = detect_distribution()
+        logger.info(f"Detected distribution: {distribution.value}")
+        default_commands = get_default_commands(distribution)
         existing_numbers = {cmd.number for cmd in self._commands}
         added_count = 0
         
