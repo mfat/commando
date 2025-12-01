@@ -24,6 +24,7 @@ class Command:
     category: str = ""
     description: str = ""
     no_terminal: bool = False  # If True, run command directly without terminal
+    run_mode: int = 1  # 1 = execute command, 2 = type command in terminal without executing
     
     def to_dict(self) -> dict:
         """Convert to dictionary."""

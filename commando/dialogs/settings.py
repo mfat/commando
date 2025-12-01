@@ -7,7 +7,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Gtk, Adw
+from gi.repository import Gtk, Adw, GLib
 
 from commando.logger import get_logger
 from commando.config import Config
@@ -111,8 +111,24 @@ class SettingsDialog(Adw.PreferencesWindow):
         """Create general settings page."""
         page = Adw.PreferencesPage(title="General", icon_name="emblem-system-symbolic")
         
+        # Commands group
+        commands_group = Adw.PreferencesGroup(title="Commands")
+        
+        # Show default cards
+        show_defaults_row = Adw.ActionRow(
+            title="Show Default Cards",
+            subtitle="Display default command cards (1-32)"
+        )
+        show_defaults_switch = Gtk.Switch()
+        show_defaults_switch.set_active(self.config.get("general.show_default_cards", True))
+        show_defaults_switch.connect("notify::active", self._on_show_defaults_changed)
+        show_defaults_row.add_suffix(show_defaults_switch)
+        commands_group.add(show_defaults_row)
+        
+        page.add(commands_group)
+        
         # Logging group
-        group = Adw.PreferencesGroup(title="Logging")
+        logging_group = Adw.PreferencesGroup(title="Logging")
         
         # Log level
         log_level_row = Adw.ActionRow(title="Log Level")
@@ -124,9 +140,9 @@ class SettingsDialog(Adw.PreferencesWindow):
         log_level_combo.set_active_id(self.config.get("logging.level", "INFO"))
         log_level_combo.connect("changed", self._on_log_level_changed)
         log_level_row.add_suffix(log_level_combo)
-        group.add(log_level_row)
+        logging_group.add(log_level_row)
         
-        page.add(group)
+        page.add(logging_group)
         self.add(page)
     
     def _on_font_changed(self, entry):
@@ -158,6 +174,15 @@ class SettingsDialog(Adw.PreferencesWindow):
             style_manager.set_color_scheme(Adw.ColorScheme.FORCE_DARK)
         else:
             style_manager.set_color_scheme(Adw.ColorScheme.PREFER_DARK)
+    
+    def _on_show_defaults_changed(self, switch, param):
+        """Handle show default cards setting change."""
+        show_defaults = switch.get_active()
+        self.config.set("general.show_default_cards", show_defaults)
+        # Reload commands in main view
+        window = self.get_transient_for()
+        if window and hasattr(window, "main_view"):
+            GLib.idle_add(window.main_view._load_commands)
     
     def _on_log_level_changed(self, combo):
         """Handle log level change."""

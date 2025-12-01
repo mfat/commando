@@ -182,6 +182,22 @@ class CardEditorDialog(Adw.Window):
         desc_box.append(scrolled)
         main_box.append(desc_box)
         
+        # Run mode
+        run_mode_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        run_mode_label = Gtk.Label(label="Run Mode:")
+        run_mode_label.set_halign(Gtk.Align.START)
+        run_mode_label.set_size_request(120, -1)
+        run_mode_box.append(run_mode_label)
+        
+        self.run_mode_combo = Gtk.ComboBoxText()
+        self.run_mode_combo.append("1", "Execute command")
+        self.run_mode_combo.append("2", "Type command (user runs manually)")
+        run_mode = getattr(command, 'run_mode', 1)
+        self.run_mode_combo.set_active_id(str(run_mode))
+        self.run_mode_combo.set_tooltip_text("Mode 1: Execute command immediately\nMode 2: Type command in terminal, user can edit/add arguments before running")
+        run_mode_box.append(self.run_mode_combo)
+        main_box.append(run_mode_box)
+        
         # No terminal option
         no_terminal_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         self.no_terminal_check = Gtk.CheckButton(label="No terminal")
@@ -248,6 +264,7 @@ class CardEditorDialog(Adw.Window):
         description = buffer.get_text(start, end, False)
         
         no_terminal = self.no_terminal_check.get_active()
+        run_mode = int(self.run_mode_combo.get_active_id())
         
         # Update command
         self.command.number = number
@@ -259,6 +276,7 @@ class CardEditorDialog(Adw.Window):
         self.command.category = category
         self.command.description = description
         self.command.no_terminal = no_terminal
+        self.command.run_mode = run_mode
         
         # Call callback if set
         if self.saved_callback:

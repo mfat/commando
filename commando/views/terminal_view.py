@@ -350,6 +350,41 @@ class TerminalView(Adw.Bin):
                         terminal.grab_focus()
                         logger.info(f"Executed command in terminal: {command}")
     
+    def type_command(self, command: str, create_new_tab: bool = False):
+        """
+        Type a command in the terminal without executing it.
+        User can edit/add arguments before pressing Enter.
+        
+        Args:
+            command: Command to type
+            create_new_tab: If True, create a new tab. If False, use current tab (creates one if none exists).
+        """
+        # Check if there's a current tab
+        has_current_tab = self.tab_view.get_selected_page() is not None
+        
+        if create_new_tab or not has_current_tab:
+            # Create a new terminal tab first
+            self._create_terminal_tab()
+            # Wait a bit for the terminal to be ready, then type the command
+            GLib.timeout_add(500, lambda: self._type_in_current_terminal(command))
+        else:
+            self._type_in_current_terminal(command)
+    
+    def _type_in_current_terminal(self, command: str):
+        """Type command in the current terminal tab."""
+        page = self.tab_view.get_selected_page()
+        if page:
+            child = page.get_child()
+            # Terminal is wrapped in a box
+            if isinstance(child, Gtk.Box) and child.get_first_child():
+                terminal = child.get_first_child()
+                if isinstance(terminal, Vte.Terminal):
+                    # Type the command without newline (user can edit/execute)
+                    terminal.feed_child(command.encode())
+                    # Give focus to the terminal so user can interact with it
+                    terminal.grab_focus()
+                    logger.info(f"Typed command in terminal (not executed): {command}")
+    
     def _on_tab_selected(self, tab_view, param):
         """Handle tab selection change - focus the terminal in the selected tab."""
         GLib.idle_add(self.focus_current_terminal)

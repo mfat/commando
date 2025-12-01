@@ -27,25 +27,43 @@ class CommandExecutor:
     
     def execute(self, command: Command, use_external: bool = None):
         """
-        Execute a command.
+        Execute a command based on its run mode.
         
         Args:
             command: Command to execute
             use_external: Whether to use external terminal. If None, reads from config.
         """
+        # Get run mode (default to 1 for backward compatibility)
+        run_mode = getattr(command, 'run_mode', 1)
+        
         # Check if command should run directly without terminal
         if getattr(command, 'no_terminal', False):
+            if run_mode == 2:
+                logger.warning("Run mode 2 (type command) is not compatible with 'no_terminal' option. Executing directly.")
             self._execute_direct(command)
             return
         
-        if use_external is None:
-            external_terminal = self.config.get("terminal.external_terminal")
-            use_external = external_terminal is not None
+        # Mode 2: Type command without executing
+        if run_mode == 2:
+            if self.terminal_view:
+                self.terminal_view.type_command(command.command, create_new_tab=False)
+                from gi.repository import GLib
+                GLib.idle_add(self.terminal_view.focus_current_terminal)
+            else:
+                logger.warning("Terminal view not available for type_command. Falling back to execute.")
+                # Fallback to execute mode
+                run_mode = 1
         
-        if use_external:
-            self._execute_external(command)
-        else:
-            self._execute_internal(command)
+        # Mode 1: Execute command (default behavior)
+        if run_mode == 1:
+            if use_external is None:
+                external_terminal = self.config.get("terminal.external_terminal")
+                use_external = external_terminal is not None
+            
+            if use_external:
+                self._execute_external(command)
+            else:
+                self._execute_internal(command)
     
     def _execute_internal(self, command: Command):
         """Execute command in internal terminal."""

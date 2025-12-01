@@ -11,6 +11,7 @@ from gi.repository import Gtk, Adw, GLib
 
 from commando.models.command import Command
 from commando.storage.command_storage import CommandStorage
+from commando.storage.default_commands import is_default_command
 from commando.widgets.command_card import CommandCard
 from commando.dialogs.card_editor import CardEditorDialog
 from commando.executor import CommandExecutor
@@ -164,6 +165,12 @@ class MainView(Adw.Bin):
     def _load_commands(self):
         """Load and display commands."""
         commands = self.storage.get_all()
+        
+        # Filter out default commands if setting is disabled
+        show_defaults = self.config.get("general.show_default_cards", True)
+        if not show_defaults:
+            commands = [cmd for cmd in commands if not is_default_command(cmd)]
+        
         self._sort_commands(commands)
         
         # Clear existing cards - get all children first, then remove them
