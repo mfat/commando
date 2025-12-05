@@ -7,7 +7,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Gtk, Adw, GLib
+from gi.repository import Gtk, Adw, GLib, GObject
 
 from commando.models.command import Command
 from commando.storage.command_storage import CommandStorage
@@ -22,7 +22,7 @@ logger = get_logger(__name__)
 
 
 class MainView(Adw.Bin):
-    """Main view displaying command cards."""
+    """Main view displaying command cards with Bazaar-style navigation."""
     
     def __init__(self):
         """Initialize the main view."""
@@ -33,16 +33,74 @@ class MainView(Adw.Bin):
         self.cards: dict[int, CommandCard] = {}
         self.number_input = ""  # Track number input for card selection
         self.number_input_timeout_id = None  # Timeout ID for resetting number input
+        self.current_category = "all"  # Track current category
         
-        # Main scrolled window
-        self.scrolled = Gtk.ScrolledWindow()
-        self.scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        # Make scrolled window expand to fill available space
-        self.scrolled.set_vexpand(True)
-        self.scrolled.set_hexpand(True)
-        # ScrolledWindow should not take focus - let FlowBox receive it
-        self.scrolled.set_focusable(False)
-        self.scrolled.set_can_focus(False)
+        # Create category stack for navigation (Bazaar-style)
+        self.category_stack = Adw.ViewStack()
+        self.category_stack.set_transition_duration(300)
+        # Enable transitions (if available in this version)
+        try:
+            self.category_stack.set_transition_type(Adw.ViewStackTransitionType.SLIDE)
+        except AttributeError:
+            pass  # Not available in this version
+        
+        # Create category views first (needed for toggles)
+        self._create_category_views()
+        
+        # Create toggle buttons box (Bazaar-style)
+        section_toggles_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        section_toggles_box.set_halign(Gtk.Align.CENTER)
+        section_toggles_box.set_size_request(800, -1)  # width-request: 800
+        section_toggles_box.set_margin_top(12)
+        section_toggles_box.set_margin_bottom(12)
+        section_toggles_box.set_hexpand(True)  # Allow horizontal expansion
+        
+        # Create Adw.ToggleGroup (exactly like Bazaar)
+        self.toggle_group = Adw.ToggleGroup()
+        self.toggle_group.set_hexpand(True)
+        self.toggle_group.set_halign(Gtk.Align.FILL)
+        self.toggle_group.set_homogeneous(True)  # Make buttons equal size like Bazaar
+        # Apply the exact same CSS classes as Bazaar's ToggleGroup
+        self.toggle_group.add_css_class("round")
+        self.toggle_group.add_css_class("huge")
+        
+        # Create Adw.Toggle widgets (exactly like Bazaar)
+        self.trending_toggle = Adw.Toggle(label="Trending")
+        self.trending_toggle.set_name("trending")
+        self.toggle_group.add(self.trending_toggle)
+        
+        self.popular_toggle = Adw.Toggle(label="Popular")
+        self.popular_toggle.set_name("popular")
+        self.toggle_group.add(self.popular_toggle)
+        
+        self.new_toggle = Adw.Toggle(label="New")
+        self.new_toggle.set_name("new")
+        self.toggle_group.add(self.new_toggle)
+        
+        self.updated_toggle = Adw.Toggle(label="Updated")
+        self.updated_toggle.set_name("updated")
+        self.toggle_group.add(self.updated_toggle)
+        
+        # Apply Bazaar-style CSS (exact CSS from Bazaar)
+        self._apply_toggle_styles()
+        
+        # Add toggle group to the box
+        section_toggles_box.append(self.toggle_group)
+        
+        # Set default active toggle by name (Adw.ToggleGroup manages active state)
+        self.toggle_group.set_active_name("trending")
+        
+        # Bind ViewStack to ToggleGroup bidirectionally (exactly like Bazaar)
+        # visible-child-name: bind section_toggles.active-name bidirectional
+        self.toggle_group.bind_property(
+            "active-name", 
+            self.category_stack, 
+            "visible-child-name",
+            GObject.BindingFlags.BIDIRECTIONAL | GObject.BindingFlags.SYNC_CREATE
+        )
+        
+        # Also connect to handle category loading
+        self.category_stack.connect("notify::visible-child-name", self._on_stack_changed)
         
         # Toolbar
         toolbar = self._create_toolbar()
@@ -50,39 +108,8 @@ class MainView(Adw.Bin):
         # Main box
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         main_box.append(toolbar)
-        main_box.append(self.scrolled)
-        
-        # Flow box for cards
-        self.flow_box = Gtk.FlowBox()
-        self.flow_box.set_selection_mode(Gtk.SelectionMode.SINGLE)  # Enable selection for keyboard navigation
-        self.flow_box.set_homogeneous(False)  # Don't force equal sizes
-        self.flow_box.set_max_children_per_line(4)
-        self.flow_box.set_min_children_per_line(1)
-        self.flow_box.set_row_spacing(12)
-        self.flow_box.set_column_spacing(12)
-        self.flow_box.set_margin_start(24)
-        self.flow_box.set_margin_end(24)
-        self.flow_box.set_margin_top(24)
-        self.flow_box.set_margin_bottom(24)
-        # Align items to start (top) to prevent stretching
-        self.flow_box.set_valign(Gtk.Align.START)
-        # Make FlowBox focusable for keyboard navigation
-        self.flow_box.set_focusable(True)
-        self.flow_box.set_can_focus(True)
-        # Prevent FlowBox from expanding children
-        self.flow_box.set_activate_on_single_click(False)
-        # Connect to selection changed to handle Enter key
-        self.flow_box.connect("selected-children-changed", self._on_selection_changed)
-        # Add keyboard controller to MainView so it receives events even if FlowBox doesn't have focus
-        # This ensures keyboard navigation works even when FlowBox focus fails
-        # Use CAPTURE phase to intercept events before they reach child widgets
-        # Store reference to controller so we can verify it's active
-        self.key_controller = Gtk.EventControllerKey()
-        self.key_controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
-        self.key_controller.connect("key-pressed", self._on_key_pressed)
-        self.add_controller(self.key_controller)
-        
-        self.scrolled.set_child(self.flow_box)
+        main_box.append(section_toggles_box)
+        main_box.append(self.category_stack)
         
         self.set_child(main_box)
         
@@ -90,12 +117,132 @@ class MainView(Adw.Bin):
         self._load_commands()
         
         # MainView should be focusable to receive keyboard events for navigation
-        # But we'll try to pass focus to FlowBox when possible
         self.set_focusable(True)
         self.set_can_focus(True)
         
         # Reset number input when view becomes visible
         self.connect("notify::visible", self._on_visibility_changed)
+        
+        # Connect to stack changes to update current category
+        self.category_stack.connect("notify::visible-child", self._on_category_changed)
+    
+    def _create_category_views(self):
+        """Create views for each category (Bazaar-style)."""
+        # Trending view
+        self.trending_view = self._create_card_view("trending")
+        self.category_stack.add_titled(self.trending_view, "trending", "Trending")
+        
+        # Popular view
+        self.popular_view = self._create_card_view("popular")
+        self.category_stack.add_titled(self.popular_view, "popular", "Popular")
+        
+        # New view
+        self.new_view = self._create_card_view("new")
+        self.category_stack.add_titled(self.new_view, "new", "New")
+        
+        # Updated view
+        self.updated_view = self._create_card_view("updated")
+        self.category_stack.add_titled(self.updated_view, "updated", "Updated")
+        
+        # Set default view
+        self.category_stack.set_visible_child_name("trending")
+    
+    def _create_card_view(self, category_name: str) -> Adw.Bin:
+        """Create a card view for a specific category."""
+        view = Adw.Bin()
+        
+        # Main scrolled window
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_vexpand(True)
+        scrolled.set_hexpand(True)
+        scrolled.set_focusable(False)
+        scrolled.set_can_focus(False)
+        
+        # Flow box for cards (Bazaar-style - uniform card sizes)
+        flow_box = Gtk.FlowBox()
+        flow_box.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        flow_box.set_homogeneous(True)  # Make all cards the same size (Bazaar-style)
+        flow_box.set_max_children_per_line(4)
+        flow_box.set_min_children_per_line(1)
+        flow_box.set_row_spacing(12)
+        flow_box.set_column_spacing(12)
+        flow_box.set_margin_start(24)
+        flow_box.set_margin_end(24)
+        flow_box.set_margin_top(24)
+        flow_box.set_margin_bottom(24)
+        flow_box.set_valign(Gtk.Align.START)
+        flow_box.set_focusable(True)
+        flow_box.set_can_focus(True)
+        flow_box.set_activate_on_single_click(False)
+        flow_box.connect("selected-children-changed", self._on_selection_changed)
+        
+        scrolled.set_child(flow_box)
+        view.set_child(scrolled)
+        
+        # Store flow_box reference in view
+        view.flow_box = flow_box
+        view.scrolled = scrolled
+        view.category_name = category_name
+        
+        return view
+    
+    def _apply_toggle_styles(self):
+        """Apply Bazaar-style CSS to toggle buttons and cards (exact CSS from Bazaar)."""
+        css = """
+        /* Exact CSS from Bazaar - line 299-306 of style.css */
+        toggle-group.huge,
+        toggle-group.huge * {
+            border-radius: 9999px;
+        }
+        
+        .huge > toggle {
+            padding: 3px 12px;
+        }
+        
+        /* Bazaar-style card styling */
+        flowbox > child {
+            padding: 0;
+            margin: 6px 6px;
+            border-radius: 12px;
+            transition: background-color 200ms;
+        }
+        
+        button.card.app-tile {
+            border-radius: 12px;
+        }
+        """
+        provider = Gtk.CssProvider()
+        provider.load_from_data(css.encode())
+        
+        # Apply to the main view so it cascades to children
+        context = self.get_style_context()
+        context.add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    
+    def _on_stack_changed(self, stack, param):
+        """Handle stack visible child change (Bazaar-style)."""
+        visible_child_name = stack.get_visible_child_name()
+        if visible_child_name:
+            self.current_category = visible_child_name
+            self._load_commands_for_category(visible_child_name)
+    
+    def _on_category_changed(self, stack, param):
+        """Handle category change (legacy method, kept for compatibility)."""
+        self._on_stack_changed(stack, param)
+    
+    def _get_current_flow_box(self):
+        """Get the flow box for the current category."""
+        visible_child = self.category_stack.get_visible_child()
+        if visible_child and hasattr(visible_child, 'flow_box'):
+            return visible_child.flow_box
+        return self.trending_view.flow_box  # Fallback to trending view
+    
+    def _get_current_scrolled(self):
+        """Get the scrolled window for the current category."""
+        visible_child = self.category_stack.get_visible_child()
+        if visible_child and hasattr(visible_child, 'scrolled'):
+            return visible_child.scrolled
+        return self.trending_view.scrolled  # Fallback to trending view
     
     def _on_visibility_changed(self, widget, param):
         """Handle visibility changes - reset number input when view becomes visible."""
@@ -163,7 +310,21 @@ class MainView(Adw.Bin):
         return toolbar
     
     def _load_commands(self):
-        """Load and display commands."""
+        """Load and display commands for all categories."""
+        # Load commands for the current category
+        current_category = self.category_stack.get_visible_child_name() or "all"
+        self._load_commands_for_category(current_category)
+    
+    def _load_commands_for_category(self, category_name: str):
+        """Load and display commands for a specific category."""
+        # Get the view for this category
+        view = self.category_stack.get_child_by_name(category_name)
+        if not view or not hasattr(view, 'flow_box'):
+            return
+        
+        flow_box = view.flow_box
+        
+        # Get all commands
         commands = self.storage.get_all()
         
         # Filter out default commands if setting is disabled
@@ -171,38 +332,55 @@ class MainView(Adw.Bin):
         if not show_defaults:
             commands = [cmd for cmd in commands if not is_default_command(cmd)]
         
+        # Filter commands by category
+        commands = self._filter_commands_by_category(commands, category_name)
+        
         self._sort_commands(commands)
         
-        # Clear existing cards - get all children first, then remove them
-        # This avoids issues with modifying the container while iterating
+        # Clear existing cards
         children = []
-        child = self.flow_box.get_first_child()
+        child = flow_box.get_first_child()
         while child is not None:
             children.append(child)
             child = child.get_next_sibling()
         
         for child in children:
-            self.flow_box.remove(child)
+            flow_box.remove(child)
         
-        self.cards.clear()
-        
-        # Create cards
+        # Create cards for this category
         for command in commands:
-            # Skip if card already exists (shouldn't happen after clear, but safety check)
+            # Reuse existing card if available, otherwise create new one
             if command.number in self.cards:
-                continue
-                
-            card = CommandCard(
-                command,
-                on_click=self._on_card_click,
-                on_double_click=self._on_card_double_click,
-                main_view=self
-            )
-            self.flow_box.append(card)
-            self.cards[command.number] = card
+                card = self.cards[command.number]
+            else:
+                card = CommandCard(
+                    command,
+                    on_click=self._on_card_click,
+                    on_double_click=self._on_card_double_click,
+                    main_view=self
+                )
+                self.cards[command.number] = card
+            
+            flow_box.append(card)
         
         # Select first card and focus FlowBox after commands are loaded
-        GLib.idle_add(self._select_first_card_and_focus)
+        GLib.idle_add(lambda: self._select_first_card_and_focus(flow_box))
+    
+    def _filter_commands_by_category(self, commands: list[Command], category_name: str) -> list[Command]:
+        """Filter commands based on category name (Bazaar-style categories)."""
+        if category_name == "trending":
+            # For trending, return all commands (can be enhanced with usage metrics)
+            return commands
+        elif category_name == "popular":
+            # For popular, return all commands (can be enhanced with popularity metrics)
+            return commands
+        elif category_name == "new":
+            # For new, return all commands (can be enhanced with creation date)
+            return commands
+        elif category_name == "updated":
+            # For updated, return all commands (can be enhanced with modification date)
+            return commands
+        return commands
     
     def _sort_commands(self, commands: list[Command]):
         """Sort commands based on current sort setting."""
@@ -220,22 +398,23 @@ class MainView(Adw.Bin):
     
     def _on_search_changed(self, entry):
         """Handle search text changes."""
+        flow_box = self._get_current_flow_box()
         query = entry.get_text().lower()
         if not query:
             # Show all cards - iterate through FlowBox children to show both card and wrapper
-            for child in self.flow_box:
+            for child in flow_box:
                 card = child.get_child()
                 if isinstance(card, CommandCard):
                     child.set_visible(True)
                     card.set_visible(True)
             # Select first card when search is cleared
-            first_child = self.flow_box.get_first_child()
+            first_child = flow_box.get_first_child()
             if first_child:
-                self.flow_box.select_child(first_child)
+                flow_box.select_child(first_child)
         else:
             # Filter cards - hide/show both FlowBoxChild and card
             first_visible_child = None
-            for child in self.flow_box:
+            for child in flow_box:
                 card = child.get_child()
                 if isinstance(card, CommandCard):
                     command = card.command
@@ -258,12 +437,13 @@ class MainView(Adw.Bin):
             
             # Select first visible card after filtering
             if first_visible_child:
-                self.flow_box.select_child(first_visible_child)
+                flow_box.select_child(first_visible_child)
     
     def _on_search_activate(self, entry):
         """Handle Enter key press in search entry - execute first matching command."""
+        flow_box = self._get_current_flow_box()
         # Get the first visible card and execute it
-        for child in self.flow_box:
+        for child in flow_box:
             if child.get_visible():
                 card = child.get_child()
                 if isinstance(card, CommandCard):
@@ -283,13 +463,14 @@ class MainView(Adw.Bin):
     
     def _on_layout_toggled(self, button):
         """Handle layout toggle."""
+        flow_box = self._get_current_flow_box()
         if button.get_active():
             # Grid layout (default)
-            self.flow_box.set_max_children_per_line(4)
+            flow_box.set_max_children_per_line(4)
             button.set_tooltip_text("Grid Layout (click for List Layout)")
         else:
             # List layout
-            self.flow_box.set_max_children_per_line(1)
+            flow_box.set_max_children_per_line(1)
             button.set_tooltip_text("List Layout (click for Grid Layout)")
     
     def _on_new_command(self, button):
@@ -305,16 +486,17 @@ class MainView(Adw.Bin):
     def _on_card_click(self, command: Command):
         """Handle card click - select the card only."""
         logger.debug(f"Card clicked: {command.title}")
+        flow_box = self._get_current_flow_box()
         # Single click - only select the card, don't execute
         # Find the card in the FlowBox and select it
         card = self.cards.get(command.number)
         if card:
             # Find the FlowBoxChild that contains this card
-            for child in self.flow_box:
+            for child in flow_box:
                 if child.get_child() == card:
-                    self.flow_box.select_child(child)
+                    flow_box.select_child(child)
                     # Ensure FlowBox has focus for keyboard navigation
-                    self.flow_box.grab_focus()
+                    flow_box.grab_focus()
                     logger.debug(f"Card {command.number} selected")
                     break
     
@@ -388,25 +570,27 @@ class MainView(Adw.Bin):
         # Adw.Dialog uses close() instead of destroy()
         dialog.close()
     
-    def _select_first_card_and_focus(self, retry_count=0):
+    def _select_first_card_and_focus(self, flow_box=None, retry_count=0):
         """Select the first card and focus the FlowBox."""
+        if flow_box is None:
+            flow_box = self._get_current_flow_box()
         MAX_RETRIES = 10  # Prevent infinite loops
         
         if retry_count >= MAX_RETRIES:
             logger.warning("First card selection and focus failed after maximum retries")
             return False
         
-        first_child = self.flow_box.get_first_child()
+        first_child = flow_box.get_first_child()
         if first_child:
-            self.flow_box.select_child(first_child)
+            flow_box.select_child(first_child)
             # Focus the FlowBox
-            if self.flow_box.get_visible() and self.flow_box.get_can_focus():
-                self.flow_box.grab_focus()
+            if flow_box.get_visible() and flow_box.get_can_focus():
+                flow_box.grab_focus()
                 logger.debug("First card selected and FlowBox focused")
                 return False  # Success, don't repeat
             else:
                 # Retry if not ready
-                GLib.timeout_add(50, lambda: self._select_first_card_and_focus(retry_count + 1))
+                GLib.timeout_add(50, lambda: self._select_first_card_and_focus(flow_box, retry_count + 1))
                 return False  # Don't repeat in this call
         return False  # Don't repeat
     
@@ -420,11 +604,13 @@ class MainView(Adw.Bin):
         """Handle keyboard input on main view."""
         from gi.repository import Gdk
         
+        flow_box = self._get_current_flow_box()
+        
         # Log ALL key presses at the very start to debug
-        logger.debug(f"MainView._on_key_pressed START: keyval={keyval}, flow_box_visible={self.flow_box.get_visible()}, cards_count={len(self.cards)}, main_view_has_focus={self.has_focus()}")
+        logger.debug(f"MainView._on_key_pressed START: keyval={keyval}, flow_box_visible={flow_box.get_visible()}, cards_count={len(self.cards)}, main_view_has_focus={self.has_focus()}")
         
         # Only handle keys when main view is visible and has cards
-        if not self.flow_box.get_visible() or len(self.cards) == 0:
+        if not flow_box.get_visible() or len(self.cards) == 0:
             logger.debug("Skipping: flow_box not visible or no cards")
             return False
         
@@ -439,7 +625,7 @@ class MainView(Adw.Bin):
                 break
             parent = parent.get_parent()
         
-        logger.debug(f"MainView key pressed: keyval={keyval}, main_view_has_focus={self.has_focus()}, flow_box_has_focus={self.flow_box.has_focus()}, number_input='{self.number_input}'")
+        logger.debug(f"MainView key pressed: keyval={keyval}, main_view_has_focus={self.has_focus()}, flow_box_has_focus={flow_box.has_focus()}, number_input='{self.number_input}'")
         
         # Handle number keys for card selection (check this first, before other keys)
         if self._is_number_key(keyval):
@@ -451,7 +637,7 @@ class MainView(Adw.Bin):
         
         # Check if Enter or Return key was pressed
         if keyval == Gdk.KEY_Return or keyval == Gdk.KEY_KP_Enter:
-            selected = self.flow_box.get_selected_children()
+            selected = flow_box.get_selected_children()
             if selected:
                 # Get the first selected child
                 child = selected[0]
@@ -463,9 +649,9 @@ class MainView(Adw.Bin):
                 return True  # Event handled
             else:
                 # No selection, select first card
-                first_child = self.flow_box.get_first_child()
+                first_child = flow_box.get_first_child()
                 if first_child:
-                    self.flow_box.select_child(first_child)
+                    flow_box.select_child(first_child)
                 return True
         
         # Handle arrow key navigation
@@ -492,26 +678,28 @@ class MainView(Adw.Bin):
         """Handle arrow key navigation."""
         from gi.repository import Gdk
         
+        flow_box = self._get_current_flow_box()
+        
         # Ensure a card is selected before navigating
-        selected = self.flow_box.get_selected_children()
+        selected = flow_box.get_selected_children()
         current_child = selected[0] if selected else None
         
         if not current_child:
             # No selection, select first child
-            first_child = self.flow_box.get_first_child()
+            first_child = flow_box.get_first_child()
             if first_child:
-                self.flow_box.select_child(first_child)
+                flow_box.select_child(first_child)
                 self._scroll_to_child(first_child)
                 logger.debug("Selected first card in arrow key handler")
             return True
         
         # Get current index
         current_index = current_child.get_index()
-        max_children_per_line = self.flow_box.get_max_children_per_line()
+        max_children_per_line = flow_box.get_max_children_per_line()
         
         # Count total children by iterating
         total_children = 0
-        child = self.flow_box.get_first_child()
+        child = flow_box.get_first_child()
         while child is not None:
             total_children += 1
             child = child.get_next_sibling()
@@ -521,9 +709,9 @@ class MainView(Adw.Bin):
             # Move right (next card)
             next_index = current_index + 1
             if next_index < total_children:
-                next_child = self.flow_box.get_child_at_index(next_index)
+                next_child = flow_box.get_child_at_index(next_index)
                 if next_child:
-                    self.flow_box.select_child(next_child)
+                    flow_box.select_child(next_child)
                     self._scroll_to_child(next_child)
                     return True
         
@@ -531,9 +719,9 @@ class MainView(Adw.Bin):
             # Move left (previous card)
             next_index = current_index - 1
             if next_index >= 0:
-                next_child = self.flow_box.get_child_at_index(next_index)
+                next_child = flow_box.get_child_at_index(next_index)
                 if next_child:
-                    self.flow_box.select_child(next_child)
+                    flow_box.select_child(next_child)
                     self._scroll_to_child(next_child)
                     return True
         
@@ -541,9 +729,9 @@ class MainView(Adw.Bin):
             # Move down (next row)
             next_index = current_index + max_children_per_line
             if next_index < total_children:
-                next_child = self.flow_box.get_child_at_index(next_index)
+                next_child = flow_box.get_child_at_index(next_index)
                 if next_child:
-                    self.flow_box.select_child(next_child)
+                    flow_box.select_child(next_child)
                     self._scroll_to_child(next_child)
                     return True
         
@@ -551,9 +739,9 @@ class MainView(Adw.Bin):
             # Move up (previous row)
             next_index = current_index - max_children_per_line
             if next_index >= 0:
-                next_child = self.flow_box.get_child_at_index(next_index)
+                next_child = flow_box.get_child_at_index(next_index)
                 if next_child:
-                    self.flow_box.select_child(next_child)
+                    flow_box.select_child(next_child)
                     self._scroll_to_child(next_child)
                     return True
         
@@ -590,6 +778,8 @@ class MainView(Adw.Bin):
     
     def _handle_number_key(self, number):
         """Handle number key press for card selection."""
+        flow_box = self._get_current_flow_box()
+        
         # Cancel any existing timeout
         if self.number_input_timeout_id:
             GLib.source_remove(self.number_input_timeout_id)
@@ -607,12 +797,12 @@ class MainView(Adw.Bin):
             if card:
                 logger.debug(f"Found card #{card_number}: {card.command.title}")
                 # Find the FlowBoxChild that contains this card
-                for child in self.flow_box:
+                for child in flow_box:
                     if child.get_child() == card:
                         # Make sure the card is visible
                         if child.get_visible() and card.get_visible():
                             logger.debug(f"Selecting card #{card_number} via number input")
-                            self.flow_box.select_child(child)
+                            flow_box.select_child(child)
                             self._scroll_to_child(child)
                             # Reset input after successful selection
                             self._reset_number_input()
@@ -635,11 +825,12 @@ class MainView(Adw.Bin):
     
     def _scroll_to_child(self, child):
         """Scroll the scrolled window to make the child visible."""
+        scrolled = self._get_current_scrolled()
         # Get the allocation of the child
         allocation = child.get_allocation()
         if allocation.height > 0:
             # Scroll to make the child visible
-            self.scrolled.get_vadjustment().set_value(allocation.y)
+            scrolled.get_vadjustment().set_value(allocation.y)
     
     def cleanup(self):
         """Clean up resources."""

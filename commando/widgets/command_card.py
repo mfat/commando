@@ -15,8 +15,8 @@ from commando.logger import get_logger
 logger = get_logger(__name__)
 
 
-class CommandCard(Adw.Bin):
-    """A card widget representing a command."""
+class CommandCard(Gtk.Button):
+    """A card widget representing a command (Bazaar-style)."""
     
     # Color mapping
     COLORS = {
@@ -39,107 +39,92 @@ class CommandCard(Adw.Bin):
         self.on_double_click = on_double_click
         self.main_view = main_view
         
-        # Add card CSS class (like in the example)
+        # Add card CSS classes for Bazaar-style design (exactly like Bazaar)
         self.add_css_class("card")
+        self.add_css_class("app-tile")
         
-        # Set margins
-        self.set_margin_start(12)
-        self.set_margin_end(12)
-        self.set_margin_top(12)
-        self.set_margin_bottom(12)
+        # Set fixed size for uniform cards (Bazaar-style)
+        self.set_size_request(280, -1)  # Fixed width, flexible height
         
-        # Prevent expansion
-        self.set_vexpand(False)
-        self.set_hexpand(False)
+        # Main content box - Bazaar-style horizontal layout
+        main_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=15)
+        main_box.set_margin_start(12)
+        main_box.set_margin_end(12)
+        main_box.set_margin_top(12)
+        main_box.set_margin_bottom(12)
+        main_box.set_can_focus(False)  # Prevent focus on inner box
         
-        # Main content box - this will be the actual card content
-        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        # Prevent main box from expanding - CRITICAL
-        main_box.set_vexpand(False)
-        main_box.set_hexpand(False)
-        main_box.set_margin_start(16)
-        main_box.set_margin_end(16)
-        main_box.set_margin_top(16)
-        main_box.set_margin_bottom(16)
-        
-        # Header with icon and number
-        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        
-        # Icon
+        # Icon - Bazaar uses 64px icons
         icon = Gtk.Image.new_from_icon_name(self.command.icon)
-        icon.set_pixel_size(32)
-        header_box.append(icon)
+        icon.set_pixel_size(64)
+        icon.add_css_class("icon-dropshadow")
+        main_box.append(icon)
         
-        # Title and number
-        title_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        # Text content box
+        text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        text_box.set_valign(Gtk.Align.CENTER)
+        text_box.set_hexpand(True)
+        
+        # Title row with number
+        title_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        title_row.set_margin_end(12)
+        
+        # Title label (Bazaar-style heading)
         title_label = Gtk.Label(label=self.command.title)
-        title_label.set_halign(Gtk.Align.START)
-        title_label.add_css_class("title-4")
-        title_box.append(title_label)
+        title_label.set_xalign(0.0)
+        title_label.set_ellipsize(3)  # END ellipsize
+        title_label.set_max_width_chars(18)
+        title_label.add_css_class("heading")
+        title_row.append(title_label)
         
+        # Number badge (small)
         number_label = Gtk.Label(label=f"#{self.command.number}")
-        number_label.set_halign(Gtk.Align.START)
         number_label.add_css_class("caption")
         number_label.add_css_class("dim-label")
-        title_box.append(number_label)
+        title_row.append(number_label)
         
-        header_box.append(title_box)
-        header_box.set_hexpand(True)
+        text_box.append(title_row)
         
-        main_box.append(header_box)
-        
-        # Command preview
+        # Description/Command preview (Bazaar-style - 2 lines max)
         if self.command.command:
-            cmd_label = Gtk.Label(label=self.command.command)
-            cmd_label.set_halign(Gtk.Align.START)
-            cmd_label.add_css_class("caption")
-            cmd_label.add_css_class("monospace")
-            cmd_label.set_wrap(True)
-            cmd_label.set_max_width_chars(40)
-            main_box.append(cmd_label)
+            desc_label = Gtk.Label(label=self.command.command)
+            desc_label.set_xalign(0.0)
+            desc_label.set_yalign(0.0)
+            desc_label.set_wrap(True)
+            desc_label.set_ellipsize(3)  # END ellipsize
+            desc_label.set_vexpand(True)
+            desc_label.set_lines(2)
+            desc_label.set_max_width_chars(15)
+            desc_label.set_single_line_mode(False)
+            text_box.append(desc_label)
+        elif self.command.description:
+            desc_label = Gtk.Label(label=self.command.description)
+            desc_label.set_xalign(0.0)
+            desc_label.set_yalign(0.0)
+            desc_label.set_wrap(True)
+            desc_label.set_ellipsize(3)
+            desc_label.set_vexpand(True)
+            desc_label.set_lines(2)
+            desc_label.set_max_width_chars(15)
+            desc_label.set_single_line_mode(False)
+            text_box.append(desc_label)
         
-        # Tag
-        if self.command.tag:
-            tag_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-            tag_label = Gtk.Label(label=self.command.tag)
-            tag_label.add_css_class("chip")
-            tag_label.add_css_class("tag")
-            tag_box.append(tag_label)
-            tag_box.set_halign(Gtk.Align.START)
-            main_box.append(tag_box)
+        main_box.append(text_box)
         
-        # Create card frame - this will contain the content
-        self.frame = Gtk.Frame()
-        # CRITICAL: Prevent frame from expanding
-        self.frame.set_vexpand(False)
-        self.frame.set_hexpand(False)
-        
-        # Set the main_box as the frame's child directly
-        self.frame.set_child(main_box)
-        
-        # Set the frame as the Bin's child
-        # CRITICAL: The Bin must not expand - it should size to its content
-        self.set_vexpand(False)
-        self.set_hexpand(False)
-        self.set_child(self.frame)
+        # Set the main box as button child
+        self.set_child(main_box)
         
         # Store main_box reference
         self.main_box = main_box
         
-        # Apply color
-        self._apply_color()
+        # Connect button click
+        self.connect("clicked", self._on_button_clicked)
         
-        # Hover effect using EventControllerMotion - attach to the card itself
-        motion_controller = Gtk.EventControllerMotion()
-        motion_controller.connect("enter", self._on_hover_enter)
-        motion_controller.connect("leave", self._on_hover_leave)
-        # Attach to the card Bin
-        self.add_controller(motion_controller)
-        
-        # Gesture for clicks
-        click_controller = Gtk.GestureClick()
-        click_controller.connect("pressed", self._on_click)
-        self.add_controller(click_controller)
+        # Double-click gesture
+        double_click = Gtk.GestureClick()
+        double_click.set_button(1)  # Left button
+        double_click.connect("pressed", self._on_double_click)
+        self.add_controller(double_click)
         
         # Right-click menu
         right_click = Gtk.GestureClick(button=3)
@@ -150,49 +135,16 @@ class CommandCard(Adw.Bin):
         self.set_focusable(True)
         self.set_can_focus(True)
     
-    def _apply_color(self):
-        """Apply color styling to the card."""
-        color_hex = self.COLORS.get(self.command.color, self.COLORS["blue"])
-        
-        # Create a CSS provider for this card
-        card_class = f"commando-card-{self.command.number}"
-        
-        # Apply border and hover to the card Bin itself
-        css = f"""
-        .{card_class} {{
-            border-left: 4px solid {color_hex};
-        }}
-        .{card_class}.hover-active {{
-            background: alpha(@theme_bg_color, 0.1);
-        }}
-        """
-        
-        provider = Gtk.CssProvider()
-        provider.load_from_data(css.encode())
-        
-        # Add custom class to the card Bin for border and hover
-        self.add_css_class(card_class)
-        
-        # Apply the style to the card
-        context = self.get_style_context()
-        context.add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    def _on_button_clicked(self, button):
+        """Handle button click."""
+        if self.on_click:
+            self.on_click(self.command)
     
-    def _on_hover_enter(self, controller, x, y):
-        """Handle mouse enter - apply hover class to card."""
-        self.add_css_class("hover-active")
+    def _on_double_click(self, gesture, n_press, x, y):
+        """Handle double-click."""
+        if n_press == 2 and self.on_double_click:
+            self.on_double_click(self.command)
     
-    def _on_hover_leave(self, controller):
-        """Handle mouse leave - remove hover class from card."""
-        self.remove_css_class("hover-active")
-    
-    def _on_click(self, gesture, n_press, x, y):
-        """Handle click events."""
-        if n_press == 1:
-            if self.on_click:
-                self.on_click(self.command)
-        elif n_press == 2:
-            if self.on_double_click:
-                self.on_double_click(self.command)
     
     def _on_right_click(self, gesture, n_press, x, y):
         """Handle right-click to show context menu."""
