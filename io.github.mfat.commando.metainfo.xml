@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.mfat.commando</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Commando</name>
+  <summary>Tabbed local terminal with a command sidebar</summary>
+  <description>
+    <p>
+      Commando is a minimal GTK4/libadwaita terminal emulator. It runs your local
+      shell in tabs and provides a sidebar of reusable command snippets organised
+      into folders and favorites, with live search and placeholder substitution.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.mfat.commando.desktop</launchable>
+  <categories>
+    <category>System</category>
+    <category>TerminalEmulator</category>
+    <category>Utility</category>
+  </categories>
+  <url type="homepage">https://github.com/mfat/commando</url>
+  <developer id="io.github.mfat">
+    <name>mFat</name>
+  </developer>
+  <releases>
+    <release version="0.1.0" date="2026-06-07">
+      <description>
+        <p>Initial release: tabbed local terminal and command sidebar.</p>
+      </description>
+    </release>
+  </releases>
+  <content_rating type="oars-1.1"/>
+</component>

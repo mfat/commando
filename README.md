@@ -1,49 +1,54 @@
 # Commando
 
-A GNOME application for saving and running user-defined Linux commands.
+A minimal, well-structured GTK4 / libadwaita terminal emulator: tabbed local
+shells plus a **command sidebar** of reusable snippets (folders, favorites, live
+search, and `${VAR}` placeholder substitution).
+
+Commando started life as two pieces of [sshpilot](https://github.com/mfat/sshpilot)
+— the tabbed terminal and the command sidebar — extracted into a standalone,
+SSH-free foundation to build on.
 
 ## Features
 
-- **Command Cards**: Organize commands with customizable properties (title, number, icon, color, tag)
-- **Multiple Views**: Main view with cards, terminal view with tabs, and web view
-- **Card Editor**: Right-click to edit card properties
-- **Speed Dial**: Quickly run commands by typing their number
-- **Search & Filter**: Find commands by any property
-- **Customizable Terminal**: Built-in terminal with extensive customization options
-- **Theme Support**: Light, dark, and system theme modes
-- **Full Keyboard Navigation**: Navigate the entire application with keyboard
+- Tabbed local terminal (VTE) running your login shell
+- Command sidebar with folders, favorites, and full-text search
+- `${VAR}` placeholders prompt for values before a command is sent
+- Add / edit / duplicate / delete commands; settings persist to JSON
+- Keyboard-friendly: `/` to search, Enter to run, Ctrl+E to edit, Del to delete
 
-## Installation
+## Requirements
 
-### From Source
+System libraries (with GObject-introspection typelibs):
 
-```bash
-pip install -e .
+- GTK 4 ≥ 4.6
+- libadwaita ≥ 1.4
+- VTE for GTK 4 (`gir1.2-vte-3.91` / `vte3` built with `-Dgtk4=true`)
+- Python ≥ 3.9
+
+Python packages: `PyGObject`, `pycairo` (see `requirements.txt`).
+
+On Debian/Ubuntu:
+
+```sh
+sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-vte-3.91
 ```
 
-### Flatpak
+On Fedora:
 
-```bash
-flatpak install com.github.commando.flatpak
+```sh
+sudo dnf install python3-gobject gtk4 libadwaita vte291-gtk4
 ```
 
-### Arch Linux
+## Run
 
-```bash
-yay -S commando
+```sh
+python3 run.py
 ```
 
-## Development
+## Configuration
 
-```bash
-python -m commando
-```
-
-## Documentation
-
-See [docs/](docs/) for full documentation.
+Settings and saved commands live in `~/.config/commando/config.json`.
 
 ## License
 
-GPL-3.0-or-later
-
+GPL-3.0-or-later. See [LICENSE](LICENSE).

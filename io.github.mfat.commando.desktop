@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Commando
+GenericName=Terminal
+Comment=Tabbed local terminal with a command sidebar
+Exec=commando
+Icon=io.github.mfat.commando
+Terminal=false
+Categories=Utility;TerminalEmulator;
+Keywords=terminal;shell;command;console;
+StartupNotify=true

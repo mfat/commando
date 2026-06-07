@@ -1,168 +1,116 @@
+"""Configuration and terminal colour profiles.
+
+A deliberately small settings store backed by a single JSON file under the XDG
+config directory. Settings use dotted keys (e.g. ``terminal.theme``) and are
+flushed to disk atomically. The same file also holds the command-sidebar data
+(folders/commands) under the ``commands`` key.
 """
-Configuration management.
-"""
+
+from __future__ import annotations
 
 import json
 import logging
 import os
-from pathlib import Path
-from typing import Any, Dict
+import tempfile
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
-class Config:
-    """Configuration manager."""
-    
-    _instance = None
-    _config: Dict[str, Any] = {}
-    
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._load()
-        return cls._instance
-    
-    def _get_config_dir(self) -> Path:
-        """
-        Get configuration directory following XDG Base Directory Specification.
-        
-        Uses XDG_CONFIG_HOME if set, otherwise defaults to ~/.config
-        """
-        xdg_config_home = os.environ.get("XDG_CONFIG_HOME")
-        if xdg_config_home:
-            config_dir = Path(xdg_config_home) / "commando"
-        else:
-            config_dir = Path.home() / ".config" / "commando"
-        config_dir.mkdir(parents=True, exist_ok=True)
-        return config_dir
-    
-    def get_data_dir(self) -> Path:
-        """
-        Get data directory following XDG Base Directory Specification.
-        
-        Uses XDG_DATA_HOME if set, otherwise defaults to ~/.local/share
-        """
-        xdg_data_home = os.environ.get("XDG_DATA_HOME")
-        if xdg_data_home:
-            data_dir = Path(xdg_data_home) / "commando"
-        else:
-            data_dir = Path.home() / ".local" / "share" / "commando"
-        data_dir.mkdir(parents=True, exist_ok=True)
-        return data_dir
-    
-    def get_cache_dir(self) -> Path:
-        """
-        Get cache directory following XDG Base Directory Specification.
-        
-        Uses XDG_CACHE_HOME if set, otherwise defaults to ~/.cache
-        """
-        xdg_cache_home = os.environ.get("XDG_CACHE_HOME")
-        if xdg_cache_home:
-            cache_dir = Path(xdg_cache_home) / "commando"
-        else:
-            cache_dir = Path.home() / ".cache" / "commando"
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        return cache_dir
-    
-    def get_state_dir(self) -> Path:
-        """
-        Get state directory following XDG Base Directory Specification.
-        
-        Uses XDG_STATE_HOME if set, otherwise defaults to ~/.local/state
-        """
-        xdg_state_home = os.environ.get("XDG_STATE_HOME")
-        if xdg_state_home:
-            state_dir = Path(xdg_state_home) / "commando"
-        else:
-            state_dir = Path.home() / ".local" / "state" / "commando"
-        state_dir.mkdir(parents=True, exist_ok=True)
-        return state_dir
-    
-    def _get_config_file(self) -> Path:
-        """Get configuration file path."""
-        return self._get_config_dir() / "config.json"
-    
-    def _load(self):
-        """Load configuration from file."""
-        config_file = self._get_config_file()
-        if config_file.exists():
-            try:
-                with open(config_file, "r") as f:
-                    self._config = json.load(f)
-                logger.debug(f"Loaded configuration from {config_file}")
-            except Exception as e:
-                logger.error(f"Failed to load config: {e}")
-                self._config = {}
-        else:
-            self._config = self._get_defaults()
-            self._save()
-    
-    def _save(self):
-        """Save configuration to file."""
-        config_file = self._get_config_file()
-        try:
-            with open(config_file, "w") as f:
-                json.dump(self._config, f, indent=2)
-            logger.debug(f"Saved configuration to {config_file}")
-        except Exception as e:
-            logger.error(f"Failed to save config: {e}")
-    
-    def _get_defaults(self) -> Dict[str, Any]:
-        """Get default configuration."""
-        return {
-            "theme": "system",
-            "logging.level": "INFO",
-            "terminal.font": "Monospace 12",
-            "terminal.scrollback_lines": 10000,
-            "terminal.cursor_blink": True,
-            "terminal.cursor_shape": "block",
-            "terminal.background_color": None,
-            "terminal.foreground_color": None,
-            "terminal.palette": None,
-            "terminal.external_terminal": None,
-            "main_view.layout": "cards",
-            "main_view.sort_by": "number",
-            "main_view.sort_ascending": True,
-        }
-    
-    def get(self, key: str, default: Any = None) -> Any:
-        """
-        Get configuration value.
-        
-        Args:
-            key: Configuration key (supports dot notation)
-            default: Default value if key not found
-        
-        Returns:
-            Configuration value
-        """
-        keys = key.split(".")
-        value = self._config
-        for k in keys:
-            if isinstance(value, dict):
-                value = value.get(k)
-                if value is None:
-                    return default
-            else:
-                return default
-        return value if value is not None else default
-    
-    def set(self, key: str, value: Any):
-        """
-        Set configuration value.
-        
-        Args:
-            key: Configuration key (supports dot notation)
-            value: Value to set
-        """
-        keys = key.split(".")
-        config = self._config
-        for k in keys[:-1]:
-            if k not in config:
-                config[k] = {}
-            config = config[k]
-        config[keys[-1]] = value
-        self._save()
-        logger.debug(f"Set config {key} = {value}")
+# Two built-in terminal colour profiles. The shape mirrors what the VTE widget
+# consumes in ``terminal.py`` (foreground/background/cursor/highlight + a
+# 16-entry ANSI palette + a Pango font string).
+_PALETTE = [
+    "#2E3436", "#CC0000", "#4E9A06", "#C4A000",
+    "#3465A4", "#75507B", "#06989A", "#D3D7CF",
+    "#555753", "#EF2929", "#8AE234", "#FCE94F",
+    "#729FCF", "#AD7FA8", "#34E2E2", "#EEEEEC",
+]
 
+BUILTIN_PROFILES: dict[str, dict[str, Any]] = {
+    "default": {
+        "foreground": "#1A1A1A",
+        "background": "#FFFFFF",
+        "cursor_color": "#1A1A1A",
+        "highlight_background": "#4A90E2",
+        "highlight_foreground": "#FFFFFF",
+        "font": "Monospace 12",
+        "palette": list(_PALETTE),
+    },
+    "dark": {
+        "foreground": "#D3D7CF",
+        "background": "#1E1E1E",
+        "cursor_color": "#FFFFFF",
+        "highlight_background": "#4A90E2",
+        "highlight_foreground": "#FFFFFF",
+        "font": "Monospace 12",
+        "palette": list(_PALETTE),
+    },
+}
+
+DEFAULTS: dict[str, Any] = {
+    "app-theme": "default",          # libadwaita colour scheme: default/light/dark
+    "terminal.theme": "dark",        # which BUILTIN_PROFILES entry to use
+    "terminal.insert_only": False,   # paste sidebar commands without a trailing newline
+    "terminal.auto_hide_sidebar": False,
+}
+
+
+def _config_dir() -> str:
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    return os.path.join(base, "commando")
+
+
+class Config:
+    """JSON-backed settings + command store."""
+
+    def __init__(self) -> None:
+        self.path = os.path.join(_config_dir(), "config.json")
+        self.config_data: dict[str, Any] = {}
+        self._load()
+
+    # -- persistence -------------------------------------------------------
+
+    def _load(self) -> None:
+        try:
+            with open(self.path, "r", encoding="utf-8") as fh:
+                self.config_data = json.load(fh)
+        except FileNotFoundError:
+            self.config_data = {}
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("Could not read config %s: %s", self.path, exc)
+            self.config_data = {}
+
+    def save(self) -> None:
+        """Atomically write the config to disk."""
+        try:
+            os.makedirs(os.path.dirname(self.path), exist_ok=True)
+            fd, tmp = tempfile.mkstemp(dir=os.path.dirname(self.path), suffix=".tmp")
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(self.config_data, fh, indent=2)
+            os.replace(tmp, self.path)
+        except OSError as exc:
+            logger.error("Failed to save config %s: %s", self.path, exc)
+
+    # Alias kept so the ported command store reads naturally.
+    save_json_config = save
+
+    # -- settings ----------------------------------------------------------
+
+    def get_setting(self, key: str, default: Any = None) -> Any:
+        if key in self.config_data:
+            return self.config_data[key]
+        if key in DEFAULTS:
+            return DEFAULTS[key]
+        return default
+
+    def set_setting(self, key: str, value: Any) -> None:
+        self.config_data[key] = value
+        self.save()
+
+    # -- terminal profiles -------------------------------------------------
+
+    def get_terminal_profile(self, name: str | None = None) -> dict[str, Any]:
+        if name is None:
+            name = self.get_setting("terminal.theme", "dark")
+        return dict(BUILTIN_PROFILES.get(name, BUILTIN_PROFILES["default"]))

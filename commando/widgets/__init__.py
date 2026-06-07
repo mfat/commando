@@ -1,2 +1,0 @@
-"""Widgets for Commando application."""
-

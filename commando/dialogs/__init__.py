@@ -1,2 +1,0 @@
-"""Dialogs for Commando application."""
-

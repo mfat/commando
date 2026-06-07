@@ -1,2 +1,0 @@
-"""Views for Commando application."""
-
